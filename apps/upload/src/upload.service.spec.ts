@@ -7,7 +7,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { UploadVersionEntity, UploadStatus, ProjectEntity } from '@app/common/database/entities';
 import { ConflictException, HttpException, NotFoundException } from '@nestjs/common';
 import { mockProjectRepo, mockUploadVersionRepo } from '@app/common/database/test/support/__mocks__';
-import { UpdateUploadStatusDto, uploadArtifactDtoStub } from '@app/common/dto/upload';
+import { uploadArtifactDtoStub } from '@app/common/dto/upload';
 import { Repository } from 'typeorm';
 import { projectEntityStub, uploadVersionEntityStub } from '@app/common/database/test/support/stubs';
 import { ComponentDto } from '@app/common/dto/discovery';
@@ -162,7 +162,7 @@ describe('UploadService', () => {
 
   describe('updateUploadStatus', () => {
     it('should update the upload status', async () => {
-      const updateUploadStatusDto = { catalogId: 1, status: UploadStatus.DOWNLOADING_FROM_URL, uploadToken: "test-token"} as unknown as UpdateUploadStatusDto;
+      const updateUploadStatusDto = { catalogId: 1, status: UploadStatus.DOWNLOADING_FROM_URL};
 
       await service.updateUploadStatus(updateUploadStatusDto);
 
@@ -173,7 +173,7 @@ describe('UploadService', () => {
     });
 
     it('should throw NotFoundException when upload version is not found', async () => {
-      const updateUploadStatusDto = { catalogId: 1, status: UploadStatus.DOWNLOADING_FROM_URL,  uploadToken: "test-token"} as unknown as UpdateUploadStatusDto;
+      const updateUploadStatusDto = { catalogId: 1, status: UploadStatus.DOWNLOADING_FROM_URL};
       jest.spyOn(uploadVersionRepo, 'update').mockResolvedValueOnce({affected: 0} as any)
       await expect(service.updateUploadStatus(updateUploadStatusDto)).rejects.toThrow(NotFoundException);
       expect(uploadVersionRepo.update).toHaveBeenCalledWith(

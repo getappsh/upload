@@ -1,15 +1,12 @@
 import { S3Service } from '@app/common/AWS/s3.service';
-import { ProjectEntity, UploadVersionEntity, UploadStatus, DeviceComponentEntity, DeviceEntity, DeviceComponentStateEnum } from '@app/common/database/entities';
-import { ConflictException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ProjectEntity, UploadVersionEntity, UploadStatus } from '@app/common/database/entities';
+import { ConflictException, HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { RpcException } from '@nestjs/microservices';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Not, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { DockerDownloadService } from './docker-download.service';
 import { ComponentDto } from '@app/common/dto/discovery';
-import { UpdateUploadStatusDto, UploadEventDto, UploadEventEnum } from '@app/common/dto/upload';
-import { MicroserviceClient, MicroserviceName } from '@app/common/microservice-client';
-import { OfferingTopicsEmit } from '@app/common/microservice-client/topics';
 
 
 
@@ -24,9 +21,6 @@ export class UploadService {
     private readonly jwtService: JwtService,
     @InjectRepository(UploadVersionEntity) private readonly uploadVersionRepo: Repository<UploadVersionEntity>,
     @InjectRepository(ProjectEntity) private readonly projectRepo: Repository<ProjectEntity>,
-    @InjectRepository(DeviceComponentEntity) private readonly deviceCompRepo: Repository<DeviceComponentEntity>,
-    @Inject(MicroserviceName.OFFERING_SERVICE) private readonly offeringClient: MicroserviceClient,
-
   ) { }
 
 
@@ -90,8 +84,7 @@ export class UploadService {
     delete manifest.uploadToken;
 
 
-    const fileName = manifest?.fileName || `${manifest.version}.zip`
-    const url = `${manifest.product}/${manifest.name}/${manifest.formation}/${manifest.version}/${fileName}`
+    const url = `${manifest.product}/${manifest.name}/${manifest.formation}/${manifest.version}/${manifest.version}.zip`
     const newUpload = UploadVersionEntity.fromManifest({ ...manifest, url: url });
 
     const existsVersion = await this.uploadVersionRepo.findOne({
@@ -118,67 +111,16 @@ export class UploadService {
     return { catalogId: newVersion.catalogId, uploadUrl: await this.s3Service.generatePresignedUrlForUpload(url) }
   }
 
-  async updateUploadStatus(updateUploadStatusDto: UpdateUploadStatusDto) {
-    this.logger.log(`Update upload status for: ${updateUploadStatusDto.catalogId}, status: ${updateUploadStatusDto.status}`)
+  async updateUploadStatus(updateUploadStatusDto: any) {
     const result = await this.uploadVersionRepo.update({ catalogId: updateUploadStatusDto.catalogId }, { uploadStatus: updateUploadStatusDto.status })
     if (result.affected === 0) {
       throw new NotFoundException(`Upload with ID ${updateUploadStatusDto.catalogId} not found`);
     }
 
-    this.updateLatestFlag(updateUploadStatusDto)
-    return {};
+    return;
 
   }
 
-  private async updateLatestFlag(updateUploadStatusDto: UpdateUploadStatusDto) {
-    this.logger.log(`Update latest flag`)
-    const base  = await this.uploadVersionRepo.findOneBy({catalogId: updateUploadStatusDto.catalogId});
-    if (!base){
-      this.logger.warn(`not found upload with catalogId: ${updateUploadStatusDto.catalogId}`)
-      return
-    }
-  
-    await this.uploadVersionRepo
-    .createQueryBuilder()
-    .update()
-    .set({ latest: false })
-    .where('platform = :platform AND component = :component AND formation = :formation AND latest = true', {
-      platform: base.platform,
-      component: base.component,
-      formation: base.formation,
-    })
-    .returning('catalog_id')
-    .execute()
-
-    const latestUpload = await this.uploadVersionRepo.findOne({
-      where: {platform: base.platform, component: base.component, formation: base.formation, uploadStatus: UploadStatus.READY},
-      order: {createdDate: 'DESC'},
-    })
-
-    let status
-    if (base.uploadStatus === UploadStatus.ERROR){
-      status = UploadEventEnum.ERROR
-    }else if(base.uploadStatus === UploadEventEnum.READY){
-      status = UploadEventEnum.READY
-    }
-    let isBaseLatest = latestUpload?.catalogId == base.catalogId;
-    if (status){
-      let event = new UploadEventDto(base.catalogId, base.component, base.platform, base.formation, base.OS, status, isBaseLatest);
-      this.sendUploadEvent(event)
-    }
-
-    if (latestUpload){
-      latestUpload.latest = true;
-      this.uploadVersionRepo.save(latestUpload)
-      this.logger.log(`set ${JSON.stringify(latestUpload)}, as latest`);
-    }   
-  }
-
-  private async sendUploadEvent(event: UploadEventDto){
-    this.logger.log(`Send Upload event: ${event}`);
-    this.offeringClient.emit(OfferingTopicsEmit.COMPONENT_UPLOAD_EVENT, event);
-  }
-  
 
   async getLastVersion(params: {projectId: number}) {
     let comp =  await this.uploadVersionRepo.findOne({
