@@ -1,6 +1,6 @@
 import { S3Service } from '@app/common/AWS/s3.service';
-import { ProjectEntity, UploadVersionEntity, UploadStatus} from '@app/common/database/entities';
-import { ConflictException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ProjectEntity, UploadVersionEntity, UploadStatus, AssetTypeEnum} from '@app/common/database/entities';
+import { BadRequestException, ConflictException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -59,7 +59,7 @@ export class UploadService {
       return
     }
     uploadVersion.uploadStatus = UploadStatus.READY;
-    uploadVersion.s3Url = objectKey;
+    uploadVersion.url = objectKey;
     this.uploadVersionRepo.save(uploadVersion);
 
     this.logger.debug(`Image saved on s3 at ${objectKey}`);
@@ -83,37 +83,64 @@ export class UploadService {
     return newVersion
   }
 
+
   async uploadManifest(manifest: any) {
-    this.logger.debug(`new upload version of manifest type component: ${manifest.name}, version: ${manifest.version}`)
+    const assetType = manifest?.assetType ?? AssetTypeEnum.ARTIFACT;
+    this.logger.log(`new upload version of manifest type component: ${manifest.name}, version: ${manifest.version}, asseType: ${assetType}`)
     delete manifest.uploadToken;
 
+    if(assetType == AssetTypeEnum.DOCKER_IMAGE){
+      return this.uploadDockerImage(manifest)
+    }
 
     const fileName = manifest?.fileName || `${manifest.version}.zip`
     const url = `${manifest.product}/${manifest.name}/${manifest.formation}/${manifest.version}/${fileName}`
-    const newUpload = UploadVersionEntity.fromManifest({ ...manifest, url: url });
+    const newUpload = UploadVersionEntity.fromManifest({ ...manifest,url: url, assetType: assetType });
 
-    const existsVersion = await this.uploadVersionRepo.findOne({
-      where: {
-        platform: newUpload.platform,
-        component: newUpload.component,
-        formation: newUpload.formation,
-        version: newUpload.version
-      }
-    })
-    let newVersion: UploadVersionEntity;
-    if (existsVersion?.uploadStatus == UploadStatus.ERROR) {
-      newVersion = existsVersion
-    } else {
-      try {
-        newVersion = await this.uploadVersionRepo.save(newUpload);
-      } catch (error) {
-        if (error.code = '23505') {
-          throw new ConflictException("Version is already exist");
-        }
-        this.logger.error(error);
-      }
-    }
+    const newVersion = await this.updateUpload(newUpload)
+    
     return { catalogId: newVersion.catalogId, uploadUrl: await this.s3Service.generatePresignedUrlForUpload(url) }
+  }
+
+  private async updateUpload(upload: UploadVersionEntity){
+
+      const existsVersion = await this.uploadVersionRepo.findOne({
+        where: {
+          platform: upload.platform,
+          component: upload.component,
+          formation: upload.formation,
+          version: upload.version
+        }
+      })
+      let newVersion: UploadVersionEntity;
+      if (existsVersion?.uploadStatus == UploadStatus.ERROR) {
+        newVersion = existsVersion
+      } else {
+        try {
+          newVersion = await this.uploadVersionRepo.save(upload);
+        } catch (error) {
+          if (error.code = '23505') {
+            throw new ConflictException("Version is already exist");
+          }
+          this.logger.error(error);
+        }
+      }
+      return newVersion
+  }
+
+  private async uploadDockerImage(manifest: any){
+    this.logger.debug("Upload docker image");
+    const assetType = manifest?.assetType ?? AssetTypeEnum.DOCKER_IMAGE;
+    const registryUrl = manifest?.registryUrl
+    if (!registryUrl){
+      throw new BadRequestException("The manifest file for the Docker image upload must include `registryUrl`")
+    }
+    const newUpload = UploadVersionEntity.fromManifest({ ...manifest, assetType: assetType, url: registryUrl });
+    const newVersion = await this.updateUpload(newUpload)
+
+    this.updateUploadStatus({catalogId: newVersion.catalogId, status: UploadStatus.READY} as UpdateUploadStatusDto)
+    return {catalogId: newVersion.catalogId}
+
   }
 
   async updateUploadStatus(updateUploadStatusDto: UpdateUploadStatusDto) {
@@ -156,7 +183,7 @@ export class UploadService {
     let status
     if (base.uploadStatus === UploadStatus.ERROR){
       status = UploadEventEnum.ERROR
-    }else if(base.uploadStatus === UploadEventEnum.READY){
+    }else if(base.uploadStatus === UploadStatus.READY){
       status = UploadEventEnum.READY
     }
     let isBaseLatest = latestUpload?.catalogId == base.catalogId;

@@ -10,7 +10,8 @@ export class TokenVerificationGuard implements CanActivate {
     
     async canActivate(context: ExecutionContext){
         const request = context.switchToHttp().getRequest();
-        const project = await this.uploadService.verifyToken(request.uploadToken)
+        const uploadToken = request?.uploadToken ?? request?.value?.uploadToken;
+        const project = await this.uploadService.verifyToken(uploadToken)
         if (!project){
             this.logger.debug(`Not allowed to upload to this project, token: ${request.uploadToken}`)
             return false;
