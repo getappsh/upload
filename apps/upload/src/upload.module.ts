@@ -1,6 +1,6 @@
 import { DatabaseModule, UploadJwtConfigService } from '@app/common';
 import { S3Service } from '@app/common/AWS/s3.service';
-import { DeviceComponentEntity, MemberEntity, MemberProjectEntity, ProjectEntity, UploadVersionEntity} from '@app/common/database/entities';
+import { MemberEntity, MemberProjectEntity, ProjectEntity, UploadVersionEntity} from '@app/common/database/entities';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -25,7 +25,7 @@ import { MicroserviceModule, MicroserviceName, MicroserviceType } from '@app/com
     JwtModule.registerAsync({
       useClass: UploadJwtConfigService
     }),
-    TypeOrmModule.forFeature([UploadVersionEntity, ProjectEntity, MemberProjectEntity, MemberEntity, DeviceComponentEntity]),
+    TypeOrmModule.forFeature([UploadVersionEntity, ProjectEntity]),
   ],
   controllers: [UploadController],
   providers: [UploadService, S3Service, DockerDownloadService],

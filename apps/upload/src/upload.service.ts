@@ -1,10 +1,9 @@
 import { S3Service } from '@app/common/AWS/s3.service';
-import { ProjectEntity, UploadVersionEntity, UploadStatus, DeviceComponentEntity, DeviceEntity, DeviceComponentStateEnum } from '@app/common/database/entities';
+import { ProjectEntity, UploadVersionEntity, UploadStatus} from '@app/common/database/entities';
 import { ConflictException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { RpcException } from '@nestjs/microservices';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Not, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { DockerDownloadService } from './docker-download.service';
 import { ComponentDto } from '@app/common/dto/discovery';
 import { UpdateUploadStatusDto, UploadEventDto, UploadEventEnum } from '@app/common/dto/upload';
@@ -24,7 +23,6 @@ export class UploadService {
     private readonly jwtService: JwtService,
     @InjectRepository(UploadVersionEntity) private readonly uploadVersionRepo: Repository<UploadVersionEntity>,
     @InjectRepository(ProjectEntity) private readonly projectRepo: Repository<ProjectEntity>,
-    @InjectRepository(DeviceComponentEntity) private readonly deviceCompRepo: Repository<DeviceComponentEntity>,
     @Inject(MicroserviceName.OFFERING_SERVICE) private readonly offeringClient: MicroserviceClient,
 
   ) { }
