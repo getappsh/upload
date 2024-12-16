@@ -134,3 +134,8 @@ export enum HashAlgorithmEnum {
     SHA256Base64 = "SHA256Base64",
 }
 
+
+export enum AssetTypeEnum {
+    ARTIFACT = "artifact",
+    DOCKER_IMAGE = "docker_image"
+}

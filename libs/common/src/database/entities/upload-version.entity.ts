@@ -1,5 +1,5 @@
 import { Entity, Column, Unique, ManyToOne, ManyToMany, BeforeInsert, CreateDateColumn, UpdateDateColumn, PrimaryColumn, OneToMany } from "typeorm";
-import { UploadStatus } from "./enums.entity";
+import { AssetTypeEnum, UploadStatus } from "./enums.entity";
 import { ProjectEntity } from "./project.entity";
 import { nanoid } from "nanoid";
 import { DeviceEntity } from "./device.entity";
@@ -17,10 +17,9 @@ export class UploadVersionEntity{
       this.catalogId = nanoid();
     }
 
-    // TODO make sure no one use this column and delete it;
-    @Column({default: null})
-    id: number;
-  
+    @Column({name: "asset_type", type: "enum", enum: AssetTypeEnum, default: AssetTypeEnum.ARTIFACT})
+    assetType: AssetTypeEnum
+
     @CreateDateColumn()
     createdDate: Date;
   
@@ -54,8 +53,8 @@ export class UploadVersionEntity{
     @Column('jsonb',{name: 'metadata', default: {}})
     metadata: any
 
-    @Column({name: 's3_url', nullable: true})
-    s3Url: string
+    @Column({name: 'url', nullable: true})
+    url: string
 
     @Column({
         name: 'upload_status',
@@ -63,7 +62,7 @@ export class UploadVersionEntity{
         enum: UploadStatus,
         default: UploadStatus.STARTED
       })
-    uploadStatus: string
+    uploadStatus: UploadStatus
 
     @Column({name: "deployment_status", nullable: true})
     deploymentStatus: string
@@ -90,8 +89,8 @@ export class UploadVersionEntity{
         newVersion.formation = formation;
         newVersion.OS = OS;
         newVersion.version = version;
-        newVersion.baseVersion = metadata['baseVersion'] || null
-        newVersion.prevVersion = metadata['prevVersion'] || null
+        newVersion.baseVersion = metadata['baseVersion'] ?? null
+        newVersion.prevVersion = metadata['prevVersion'] ?? null
         newVersion.project = project;
         newVersion.virtualSize = size;
                 
@@ -100,18 +99,18 @@ export class UploadVersionEntity{
         return newVersion
     }
 
-    static fromManifest({product, name, formation, version, project, url, size=0, ...metadata}){
+    static fromManifest({product, name, formation, version, project, url, size=0, assetType=AssetTypeEnum.ARTIFACT, ...metadata}){
         const newVersion = new UploadVersionEntity()
         newVersion.platform = product;
         newVersion.component = name;
         newVersion.formation = formation;
         newVersion.version = version;
-        newVersion.baseVersion = metadata['baseVersion'] || null
-        newVersion.prevVersion = metadata['prevVersion'] || null
+        newVersion.baseVersion = metadata['baseVersion'] ?? null
+        newVersion.prevVersion = metadata['prevVersion'] ?? null
         newVersion.project = project;
-        newVersion.s3Url = url;
+        newVersion.url = url;
         newVersion.virtualSize = size;
-
+        newVersion.assetType = assetType
         newVersion.metadata = metadata;
 
         return newVersion;
