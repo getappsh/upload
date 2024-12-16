@@ -12,12 +12,13 @@ export const uploadVersionEntityStub = (): UploadVersionEntity => {
     baseVersion: null,
     prevVersion: null,
     metadata: {},
-    s3Url: 's3/path/',
+    url: 's3/path/',
     uploadStatus: UploadStatus.STARTED,
     deploymentStatus: null,
     securityStatus: null,
     policyStatus: null,
     project: null,
+    assetType: "artifact"
   } as UploadVersionEntity
   
 

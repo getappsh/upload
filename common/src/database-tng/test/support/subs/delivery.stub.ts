@@ -7,7 +7,7 @@ export const deliveryEntityStub = (): DeliveryEntity => {
     deviceId: deviceEntityStub().ID,
     catalogId: uploadVersionEntityStub().catalogId,
     status: PrepareStatusEnum.START,
-    path: uploadVersionEntityStub().s3Url,
+    path: uploadVersionEntityStub().url,
     lastUpdatedDate: new Date()
   } as DeliveryEntity
 
