@@ -49,6 +49,7 @@ export const ProjectManagementTopics = {
     CREATE_PROJECT: `getapp-project-management.create-project${region}`,
     CREATE_PROJECT_TOKEN: `getapp-project-management.create-project-token${region}`,
     ADD_PROJECT_NEW_MEMBER: `getapp-project-management.add-project-new-member${region}`,
+    CONFIRM_PROJECT_MEMBER: `getapp-project-management.confirm-project-member${region}`,
     EDIT_PROJECT_MEMBER: `getapp-project-management.edit-project-member${region}`,
     REMOVE_PROJECT_MEMBER: `getapp-project-management.remove-project-member${region}`,
     GET_PROJECT_RELEASES: `getapp-project-management.get-project-releases${region}`,
@@ -63,6 +64,12 @@ export const ProjectManagementTopics = {
     CREATE_PROJECT_REGULATION: `getapp-project-management.create-project-regulation${region}`,
     UPDATE_PROJECT_REGULATION: `getapp-project-management.update-project-regulation${region}`,
     DELETE_PROJECT_REGULATION: `getapp-project-management.delete-project-regulation${region}`,
+
+    GET_VERSION_REGULATIONS_STATUSES: `getapp-project-management.get-version-regulation-statuses${region}`,
+    GET_VERSION_REGULATION_STATUS_BY_ID: `getapp-project-management.get-version-regulation-status-by-id${region}`,
+    SET_VERSION_REGULATION_STATUS: `getapp-project-management.set-version-regulation-status${region}`,
+    SET_VERSION_REGULATION_COMPLIANCE: `getapp-project-management.set-version-regulation-compliance${region}`,
+    DELETE_VERSION_REGULATION_STATUS: `getapp-project-management.delete-version-regulation-status${region}`,
 
     CHECK_HEALTH: `getapp-project-management.check-health${region}`
 } as const
