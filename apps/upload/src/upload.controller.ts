@@ -4,16 +4,20 @@ import { Controller, Logger, UseGuards } from '@nestjs/common';
 import { MessagePattern, RpcException } from '@nestjs/microservices';
 import { TokenVerificationGuard } from './guards/token-verification.guard';
 import { UploadService } from './upload.service';
-import { UpdateUploadStatusDto } from '@app/common/dto/upload';
+import { CreateFileUploadUrlDto, UpdateUploadStatusDto } from '@app/common/dto/upload';
 import { RpcPayload } from '@app/common/microservice-client';
 import * as fs from 'fs';
+import { FileUploadService } from './file-upload.service';
 
 
 @Controller()
 export class UploadController {
   private readonly logger = new Logger(UploadController.name);
 
-  constructor(private readonly uploadService: UploadService) {}
+  constructor(
+    private readonly uploadService: UploadService,
+    private readonly fileUploadService: FileUploadService,
+  ) {}
   
   @UseGuards(TokenVerificationGuard)
   @MessagePattern(UploadTopics.UPLOAD_ARTIFACT)
@@ -37,6 +41,11 @@ export class UploadController {
   @MessagePattern(UploadTopics.LAST_VERSION)
   getLastVersion(@RpcPayload() params: {projectId: number}){
     return this.uploadService.getLastVersion(params);
+  }
+
+  @MessagePattern(UploadTopics.CREATE_FILE_UPLOAD_URL)
+  createFileUploadUrl(@RpcPayload() dto: CreateFileUploadUrlDto) {
+    return this.fileUploadService.createFileUploadUrl(dto);
   }
 
   @MessagePattern(UploadTopics.CHECK_HEALTH)
