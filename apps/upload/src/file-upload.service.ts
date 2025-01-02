@@ -1,13 +1,15 @@
 import { FileUploadEntity, FileUPloadStatusEnum } from "@app/common/database/entities";
 import { CreateFileUploadUrlDto, FileUploadUrlDto } from "@app/common/dto/upload";
-import { Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { MinioClientService } from "@app/common/AWS/minio-client.service";
+import { SafeCronService } from "@app/common/safe-cron/safe-cron.service";
+import { TimeoutRepeatTask } from "@app/common/safe-cron/timeout-repeated-task.decorator";
 
 @Injectable()
-export class FileUploadService implements OnApplicationBootstrap{
+export class FileUploadService{
 
   private static readonly OBJECT_PREFIX = 'upload/';
   private readonly logger = new Logger(FileUploadService.name);
@@ -16,6 +18,7 @@ export class FileUploadService implements OnApplicationBootstrap{
   constructor(
     private readonly configService: ConfigService,
     private readonly minioClient: MinioClientService,
+    private readonly safeCron: SafeCronService,
     @InjectRepository(FileUploadEntity) private readonly uploadRepo: Repository<FileUploadEntity>,
   ) { }
 
@@ -55,35 +58,45 @@ export class FileUploadService implements OnApplicationBootstrap{
     return `${FileUploadService.OBJECT_PREFIX}${dto.userId}/${sanitizedFileName}`;
   }
 
-  listenToObjectsEvents(){
-    this.logger.log(`Listening to objects events in bucket: ${this.bucketName}`);
-    const poller = this.minioClient.listenBucketNotifications(this.bucketName, FileUploadService.OBJECT_PREFIX, '', ['s3:ObjectCreated:*', 's3:ObjectRemoved:*']);
+  private async listenToObjectsEvents(): Promise<void> {
+    return new Promise((resolve, reject) => {
 
-    poller.on('notification', record => {
-      const eventName = record?.eventName;
-      const objectKey = record?.s3?.object?.key;
-      this.logger.log(`Received event: ${eventName}, for object: ${objectKey}`);
+      this.logger.log(`Listening to objects events in bucket: ${this.bucketName}`);
+      const poller = this.minioClient.listenBucketNotifications(this.bucketName, FileUploadService.OBJECT_PREFIX, '', ['s3:ObjectCreated:*', 's3:ObjectRemoved:*']);
 
-      if (eventName.startsWith('s3:ObjectCreated:')) {
-        this.logger.debug(`Object created: ${JSON.stringify(record)}`);
+      poller.on('notification', record => {
+        const eventName = record?.eventName;
+        const objectKey = record?.s3?.object?.key;
+        this.logger.log(`Received event: ${eventName}, for object: ${objectKey}`);
 
-        const file = new FileUploadEntity();
-        file.objectKey = objectKey;
-        file.size = record?.s3?.object?.size;
-        file.contentType = record?.s3?.object?.contentType;
-        file.uploadAt = record?.eventTime;
-        file.status = FileUPloadStatusEnum.UPLOADED;
+        if (eventName.startsWith('s3:ObjectCreated:')) {
+          this.logger.debug(`Object created: ${JSON.stringify(record)}`);
 
-        this.updateUploadFile(file);
+          const file = new FileUploadEntity();
+          file.objectKey = objectKey;
+          file.size = record?.s3?.object?.size;
+          file.contentType = record?.s3?.object?.contentType;
+          file.uploadAt = record?.eventTime;
+          file.status = FileUPloadStatusEnum.UPLOADED;
 
-      }else if (eventName.startsWith('s3:ObjectRemoved:')) {
-        this.logger.debug(`Object removed: ${JSON.stringify(record)}`);
-        const file = new FileUploadEntity();
-        file.objectKey = objectKey;
-        file.status = FileUPloadStatusEnum.REMOVED;
-        this.updateUploadFile(file);
-      }
-    })
+          this.updateUploadFile(file);
+
+        }else if (eventName.startsWith('s3:ObjectRemoved:')) {
+          this.logger.debug(`Object removed: ${JSON.stringify(record)}`);
+          const file = new FileUploadEntity();
+          file.objectKey = objectKey;
+          file.status = FileUPloadStatusEnum.REMOVED;
+          this.updateUploadFile(file);
+        }
+      })
+
+      poller.on('error', error => {
+        this.logger.error(`Error listening to bucket notifications: ${error}`);
+        poller.stop();
+        reject(error);
+      });
+    });
+
   }
   
   async updateUploadFile(file: FileUploadEntity){
@@ -95,12 +108,14 @@ export class FileUploadService implements OnApplicationBootstrap{
   }
 
 
-  async syncDB(){
+  // TODO sync deleted files
+  private async syncDB(){
     this.logger.log('Syncing DB with Minio');
     await this.syncUploadedFiles();
 
     this.logger.log('DB Sync finished');
   }
+
 
   private async syncUploadedFiles(){
     this.logger.log('Syncing uploaded files');
@@ -151,10 +166,10 @@ export class FileUploadService implements OnApplicationBootstrap{
     }
   }
 
-
-  onApplicationBootstrap() {
-    this.listenToObjectsEvents();
-    this.syncDB()
+  @TimeoutRepeatTask({ name: "listen-to-minio-events", initialTimeout: 1000, repeatTimeout: 10000 }) // Start after 1 second, repeat when finished every 10 seconds
+  async listenTomMinioEvents() {
+    this.syncDB();
+    return this.listenToObjectsEvents();
   }
   
 }

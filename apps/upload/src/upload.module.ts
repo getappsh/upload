@@ -13,6 +13,7 @@ import { ApmModule } from '@app/common/apm/apm.module';
 import { MicroserviceModule, MicroserviceName, MicroserviceType } from '@app/common/microservice-client';
 import { FileUploadService } from './file-upload.service';
 import { MinioClientService } from '@app/common/AWS/minio-client.service';
+import { SafeCronModule } from '@app/common/safe-cron';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { MinioClientService } from '@app/common/AWS/minio-client.service';
       useClass: UploadJwtConfigService
     }),
     TypeOrmModule.forFeature([UploadVersionEntity, ProjectEntity, FileUploadEntity]),
+    SafeCronModule
   ],
   controllers: [UploadController],
   providers: [UploadService, S3Service, DockerDownloadService, FileUploadService, MinioClientService],
