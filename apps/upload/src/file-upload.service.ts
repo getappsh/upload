@@ -3,7 +3,7 @@ import { CreateFileUploadUrlDto, FileUploadUrlDto } from "@app/common/dto/upload
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { LessThanOrEqual, Repository } from "typeorm";
 import { MinioClientService } from "@app/common/AWS/minio-client.service";
 import { SafeCronService } from "@app/common/safe-cron/safe-cron.service";
 import { TimeoutRepeatTask } from "@app/common/safe-cron/timeout-repeated-task.decorator";
@@ -18,7 +18,6 @@ export class FileUploadService{
   constructor(
     private readonly configService: ConfigService,
     private readonly minioClient: MinioClientService,
-    private readonly safeCron: SafeCronService,
     @InjectRepository(FileUploadEntity) private readonly uploadRepo: Repository<FileUploadEntity>,
   ) { }
 
@@ -116,54 +115,76 @@ export class FileUploadService{
     this.logger.log('DB Sync finished');
   }
 
+  
 
-  private async syncUploadedFiles(){
+  private async syncUploadedFiles() {
     this.logger.log('Syncing uploaded files');
-    const files = await this.uploadRepo.find({ where: { status: FileUPloadStatusEnum.PENDING }, select: ['objectKey', 'id'] });
-    
-    if (files.length === 0) {
-      this.logger.log('No pending files to process');
-      return;
-    }
-    this.logger.log(`Processing ${files.length} files`);
 
-    const batchSize = 5
+    const now = new Date();
+    const batchSize = 100;
+    let skip = 0;
+    let files;
 
-    for (let i = 0; i < files.length; i += batchSize) {
-      this.logger.debug(`Processing batch: ${i} - ${Math.min(i + batchSize, files.length)}`);
-      const batch = files.slice(i, i + batchSize);
-      
-      const filesStats = await Promise.all(
-        batch.map(file => this.minioClient.getObjectStat(this.bucketName, file.objectKey)
-          .catch(err => {
-            this.logger.error(`Error getting object stat: ${file.objectKey}, ${err}`);
-            return undefined;
-          })
-      ));
+    do {
+      this.logger.log(`Getting pending files, batch starting at ${skip}`);
+      files = await this.uploadRepo.find({
+        select: ['objectKey', 'id'],
+        where: {
+          status: FileUPloadStatusEnum.PENDING,
+          createdDate: LessThanOrEqual(now)
+        },
+        order: {
+          createdDate: 'DESC'
+        },
+        take: batchSize,
+        skip: skip
+      });
 
-      const filesToUpdate = batch.map((file, index) => {
-        const stats = filesStats[index];
-        if (!stats)  return null;
-
-        return {
-          id: file.id,
-          objectKey: file.objectKey,
-          size: stats?.size,
-          contentType: stats?.metaData?.['content-type'],
-          uploadAt: stats?.lastModified,
-          status: FileUPloadStatusEnum.UPLOADED
-        }
-        
-      }).filter(file => file !== null);
-
-
-      if (filesToUpdate.length > 0) {
-        this.logger.debug(`Updating files: ${filesToUpdate.map(file => file.objectKey)}`);
-        await this.uploadRepo.save(filesToUpdate).catch(err => { 
-          this.logger.error(`Error updating files: ${err}`);
-        });
+      if (files.length === 0) {
+        this.logger.log('No more pending files to process');
+        break;
       }
-    }
+
+      this.logger.log(`Processing ${files.length} files`);
+      const processingBatchSize = 5;
+
+      for (let i = 0; i < files.length; i += processingBatchSize) {
+        this.logger.debug(`Processing batch: ${i} - ${Math.min(i + processingBatchSize, files.length)}`);
+        const batch = files.slice(i, i + processingBatchSize);
+
+        const filesStats = await Promise.all(
+          batch.map(file => this.minioClient.getObjectStat(this.bucketName, file.objectKey)
+            .catch(err => {
+              this.logger.error(`Error getting object stat: ${file.objectKey}, ${err}`);
+              return undefined;
+            })
+        ));
+
+        const filesToUpdate = batch.map((file, index) => {
+          const stats = filesStats[index];
+          if (!stats) return null;
+
+          return {
+            id: file.id,
+            objectKey: file.objectKey,
+            size: stats?.size,
+            contentType: stats?.metaData?.['content-type'],
+            uploadAt: stats?.lastModified,
+            status: FileUPloadStatusEnum.UPLOADED
+          };
+
+        }).filter(file => file !== null);
+
+        if (filesToUpdate.length > 0) {
+          this.logger.debug(`Updating files: ${filesToUpdate.map(file => file.objectKey)}`);
+          await this.uploadRepo.save(filesToUpdate).catch(err => {
+            this.logger.error(`Error updating files: ${err}`);
+          });
+        }
+      }
+
+      skip += batchSize;
+    } while (files.length === batchSize);
   }
 
   @TimeoutRepeatTask({ name: "listen-to-minio-events", initialTimeout: 1000, repeatTimeout: 10000 }) // Start after 1 second, repeat when finished every 10 seconds
