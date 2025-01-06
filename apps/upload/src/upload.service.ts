@@ -86,7 +86,7 @@ export class UploadService {
 
   async uploadManifest(manifest: any) {
     const assetType = manifest?.assetType ?? AssetTypeEnum.ARTIFACT;
-    this.logger.log(`new upload version of manifest type component: ${manifest.name}, version: ${manifest.version}, asseType: ${assetType}`)
+    this.logger.log(`new upload version of manifest type component: ${manifest.name}, version: ${manifest.version}, assetType: ${assetType}`)
     delete manifest.uploadToken;
 
     if(assetType == AssetTypeEnum.DOCKER_IMAGE){
@@ -118,8 +118,8 @@ export class UploadService {
       } else {
         try {
           newVersion = await this.uploadVersionRepo.save(upload);
-        } catch (error) {
-          if (error.code = '23505') {
+        } catch (error) {          
+          if (error.code == '23505') {
             throw new ConflictException("Version is already exist");
           }
           this.logger.error(error);
