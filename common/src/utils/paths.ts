@@ -12,6 +12,7 @@ export const PROJECT_MANAGEMENT = "project";
 export const USERS = "users";
 export const DEVICE = "device";
 export const DEVICE_GROUP = "group";
+export const UPLOAD_RELEASES = 'releases';
 
 export const GET_MAP = "map";
 export const BUG_REPORT = "bug-report"

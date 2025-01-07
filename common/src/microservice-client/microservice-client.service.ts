@@ -93,6 +93,11 @@ export class MicroserviceClient {
       headers['user'] = this.isKafka() ? JSON.stringify(user) : user
     }
 
+    const projectToken = this.cls.get('projectToken');
+    if (projectToken !== undefined) {
+      headers['projectToken'] = JSON.stringify(projectToken)
+    }
+
     return {
       headers,
       value: typeof data !== 'string' && this.isKafka()
