@@ -38,8 +38,10 @@ export class FileUploadService{
     this.logger.log(`generatePreSingedUrl: ${JSON.stringify(signedUrl)}`);
 
     try {
-      await this.uploadRepo.upsert(upload, ['objectKey']);
-      return new FileUploadUrlDto(signedUrl, objectKey);
+      const res = await this.uploadRepo.upsert(upload, ['objectKey']);
+      const id = res.identifiers[0].id
+     
+      return new FileUploadUrlDto(id, signedUrl, objectKey);
     } catch (error) {
       this.logger.error(`Error saving file upload, ${error}`);
       throw error;
@@ -96,6 +98,23 @@ export class FileUploadService{
       });
     });
 
+  }
+
+  async deleteFile(id: number) {
+    this.logger.debug(`Deleting file with id: ${id}`);
+
+    const file = await this.uploadRepo.findOneBy({ id });
+    if (!file) {
+      this.logger.warn(`File not found: ${id}`); 
+      return;
+    }
+
+    if (file.status === FileUPloadStatusEnum.UPLOADED) {      
+      await this.minioClient.deleteObjects(this.bucketName, file.objectKey);
+    }
+  
+    this.logger.debug(`Deleting file: ${file.objectKey}`);
+    await this.uploadRepo.delete({ id });
   }
   
   async updateUploadFile(file: FileUploadEntity){
