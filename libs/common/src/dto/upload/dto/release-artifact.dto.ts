@@ -4,21 +4,13 @@ import { IsString, IsNotEmpty, IsOptional, IsEnum, IsBoolean } from "class-valid
 
 export class SetReleaseArtifactDto {
   projectId: number
+
+  version: string
   
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
-  projectToken: string;
-
-  @ApiProperty()
-  @IsString()
-  @IsNotEmpty()
   artifactName: string
-
-  @ApiProperty()
-  @IsString()
-  @IsNotEmpty()
-  releaseId: string
 
   @ApiProperty({ required: false, type: 'enum', enum: ArtifactTypeEnum, default: ArtifactTypeEnum.FILE })
   @IsOptional()

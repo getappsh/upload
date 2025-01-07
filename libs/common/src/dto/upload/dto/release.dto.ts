@@ -1,16 +1,12 @@
 import { ReleaseEntity, ReleaseStatusEnum } from "@app/common/database/entities";
 import { ApiProperty } from "@nestjs/swagger";
-import { IsNotEmpty, IsOptional, IsSemVer, IsString, IsBoolean} from "class-validator";
+import { IsNotEmpty, IsOptional, IsSemVer, IsString, IsBoolean, IsNumber} from "class-validator";
 import { ReleaseArtifactDto } from "./release-artifact.dto";
+import { Type } from "class-transformer";
 
 export class SetReleaseDto {
   
   projectId: number
-
-  @ApiProperty()
-  @IsString()
-  @IsNotEmpty()
-  projectToken: string;
   
   @ApiProperty()
   @IsSemVer()
@@ -91,9 +87,13 @@ export class ReleaseDto{
 
 export class ReleaseParams {
   @ApiProperty()
+  @IsNumber()
+  @Type(() => Number)
   projectId: number
 
   @ApiProperty()
+  @IsSemVer()
+  @Type(() => String)
   version: string
 
 
