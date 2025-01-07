@@ -94,8 +94,8 @@ export class MicroserviceClient {
     }
 
     const projectToken = this.cls.get('projectToken');
-    if (projectToken !== undefined) {
-      headers['projectToken'] = JSON.stringify(projectToken)
+    if (projectToken !== undefined && typeof projectToken === 'string') {
+      headers['projectToken'] = projectToken
     }
 
     return {
