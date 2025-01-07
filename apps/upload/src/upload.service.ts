@@ -1,5 +1,5 @@
 import { S3Service } from '@app/common/AWS/s3.service';
-import { ProjectEntity, UploadVersionEntity, UploadStatus, AssetTypeEnum} from '@app/common/database/entities';
+import { ProjectEntity, UploadVersionEntity, UploadStatus, AssetTypeEnum, MemberProjectEntity} from '@app/common/database/entities';
 import { BadRequestException, ConflictException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -23,8 +23,9 @@ export class UploadService {
     private readonly jwtService: JwtService,
     @InjectRepository(UploadVersionEntity) private readonly uploadVersionRepo: Repository<UploadVersionEntity>,
     @InjectRepository(ProjectEntity) private readonly projectRepo: Repository<ProjectEntity>,
+    @InjectRepository(MemberProjectEntity) private readonly memberProjectRepo: Repository<MemberProjectEntity>,
     @Inject(MicroserviceName.OFFERING_SERVICE) private readonly offeringClient: MicroserviceClient,
-
+    
   ) { }
 
 
@@ -232,5 +233,16 @@ export class UploadService {
       throw new HttpException('Not Allowed in this project ', HttpStatus.FORBIDDEN);
     }
     return project;
+  }
+
+  getMemberInProjectByEmail(projectId: number, email: string) {
+    this.logger.debug(`Get member in project with email: ${email} and projectId: ${projectId}`)
+    return this.memberProjectRepo.findOne({
+      relations: ['project', 'member'],
+      where: {
+        project: { id: projectId },
+        member: { email: email }
+      }
+    });
   }
 }

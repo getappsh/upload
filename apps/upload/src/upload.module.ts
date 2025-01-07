@@ -1,6 +1,6 @@
 import { DatabaseModule, UploadJwtConfigService } from '@app/common';
 import { S3Service } from '@app/common/AWS/s3.service';
-import { FileUploadEntity, MemberEntity, MemberProjectEntity, ProjectEntity, UploadVersionEntity} from '@app/common/database/entities';
+import { FileUploadEntity, MemberEntity, MemberProjectEntity, ProjectEntity, ReleaseArtifactEntity, ReleaseEntity, UploadVersionEntity} from '@app/common/database/entities';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -14,6 +14,7 @@ import { MicroserviceModule, MicroserviceName, MicroserviceType } from '@app/com
 import { FileUploadService } from './file-upload.service';
 import { MinioClientService } from '@app/common/AWS/minio-client.service';
 import { SafeCronModule } from '@app/common/safe-cron';
+import { ReleaseService } from './releases.service';
 
 @Module({
   imports: [
@@ -28,10 +29,10 @@ import { SafeCronModule } from '@app/common/safe-cron';
     JwtModule.registerAsync({
       useClass: UploadJwtConfigService
     }),
-    TypeOrmModule.forFeature([UploadVersionEntity, ProjectEntity, FileUploadEntity]),
+    TypeOrmModule.forFeature([UploadVersionEntity, ProjectEntity, FileUploadEntity, ReleaseEntity, ReleaseArtifactEntity, MemberProjectEntity]),
     SafeCronModule
   ],
   controllers: [UploadController],
-  providers: [UploadService, S3Service, DockerDownloadService, FileUploadService, MinioClientService],
+  providers: [UploadService, S3Service, DockerDownloadService, FileUploadService, MinioClientService, ReleaseService],
 })
 export class UploadModule {}
