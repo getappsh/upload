@@ -7,7 +7,17 @@ export const UploadTopics = {
     UPDATE_UPLOAD_STATUS: `getapp-upload.update-upload-status${region}`,
     LAST_VERSION: `getapp-upload.last-version${region}`,
     CHECK_HEALTH: `getapp-upload.check-health${region}`,
-    CREATE_FILE_UPLOAD_URL: `getapp-upload.create-file-upload-url${region}`
+    CREATE_FILE_UPLOAD_URL: `getapp-upload.create-file-upload-url${region}`,
+
+
+// Releases
+    GET_RELEASES: `getapp-upload.get-releases${region}`,
+    GET_RELEASE_BY_VERSION: `getapp-upload.get-release-by-version${region}`,
+    SET_RELEASE: `getapp-upload.set-release${region}`,
+    DELETE_RELEASE: `getapp-upload.delete-release${region}`,
+
+    SET_RELEASE_ARTIFACT: `getapp-upload.set-release-artifact${region}`,
+    DELETE_RELEASE_ARTIFACT: `getapp-upload.delete-release-artifact${region}`,
 } as const
 
 export const DeliveryTopics = {
