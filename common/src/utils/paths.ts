@@ -8,7 +8,8 @@ export const DELIVERY = "delivery";
 export const DEPLOY = "deploy";
 export const OFFERING = "offering";
 export const DISCOVERY = "discovery";
-export const PROJECT_MANAGEMENT = "projectManagement";
+export const PROJECT_MANAGEMENT = "project";
+export const USERS = "users";
 export const DEVICE = "device";
 export const DEVICE_GROUP = "group";
 
