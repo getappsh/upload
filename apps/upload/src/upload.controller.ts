@@ -1,8 +1,7 @@
 import { UploadTopics } from '@app/common/microservice-client/topics';
 import { RoleInProject, UploadVersionEntity } from '@app/common/database/entities';
-import { Controller, Logger, UseGuards } from '@nestjs/common';
+import { Controller, Logger } from '@nestjs/common';
 import { MessagePattern, RpcException } from '@nestjs/microservices';
-import { TokenVerificationGuard } from './guards/token-verification.guard';
 import { UploadService } from './upload.service';
 import { CreateFileUploadUrlDto, ReleaseParams, SetReleaseArtifactDto, SetReleaseDto, UpdateUploadStatusDto } from '@app/common/dto/upload';
 import { RpcPayload } from '@app/common/microservice-client';
@@ -10,6 +9,8 @@ import * as fs from 'fs';
 import { FileUploadService } from './file-upload.service';
 import { ReleaseService } from './releases.service';
 import { TokenVerification } from './decorators/token-verification.decorator';
+import { RegulationStatusService } from './regulation-status.service';
+import { RegulationStatusParams, SetRegulationCompliancyDto, SetRegulationStatusDto, VersionRegulationStatusParams } from '@app/common/dto/upload';
 
 
 @Controller()
@@ -19,7 +20,9 @@ export class UploadController {
   constructor(
     private readonly uploadService: UploadService,
     private readonly fileUploadService: FileUploadService,
-    private readonly releasesService: ReleaseService
+    private readonly releasesService: ReleaseService,
+    private readonly regulationService: RegulationStatusService
+
   ) {}
   
   @TokenVerification()
@@ -94,6 +97,37 @@ export class UploadController {
   deleteReleaseArtifact(@RpcPayload() params: ReleaseParams){
     // return this.releasesService.deleteReleaseArtifact(params);
     return "Not implemented"
+  }
+
+  @TokenVerification()
+  @MessagePattern(UploadTopics.SET_VERSION_REGULATION_STATUS)
+  setRegulationStatus(@RpcPayload() dto: SetRegulationStatusDto) {
+    return this.regulationService.setRegulationStatus(dto)
+  }
+
+  @TokenVerification(RoleInProject.PROJECT_OWNER)
+  @MessagePattern(UploadTopics.SET_VERSION_REGULATION_COMPLIANCE)
+  setComplianceStatus(@RpcPayload() dto: SetRegulationCompliancyDto) {
+    return this.regulationService.setComplianceStatus(dto)
+  }
+
+  @TokenVerification()
+  @MessagePattern(UploadTopics.GET_VERSION_REGULATION_STATUS_BY_ID)
+  getVersionRegulationStatus(@RpcPayload() params: RegulationStatusParams) {
+    return this.regulationService.getVersionRegulationStatus(params)
+  }
+
+  @TokenVerification()
+  @MessagePattern(UploadTopics.GET_VERSION_REGULATIONS_STATUSES)
+  getVersionRegulationsStatuses(@RpcPayload() dto: VersionRegulationStatusParams) {
+    return this.regulationService.getVersionRegulationsStatuses(dto)
+
+  }
+
+  @TokenVerification()
+  @MessagePattern(UploadTopics.DELETE_VERSION_REGULATION_STATUS)
+  deleteVersionRegulationStatus(@RpcPayload() params: RegulationStatusParams) {
+    return this.regulationService.deleteVersionRegulationStatus(params)
   }
 
 

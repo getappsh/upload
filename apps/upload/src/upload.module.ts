@@ -1,6 +1,6 @@
 import { DatabaseModule, UploadJwtConfigService } from '@app/common';
 import { S3Service } from '@app/common/AWS/s3.service';
-import { FileUploadEntity, MemberEntity, MemberProjectEntity, ProjectEntity, ReleaseArtifactEntity, ReleaseEntity, UploadVersionEntity} from '@app/common/database/entities';
+import { FileUploadEntity, MemberEntity, MemberProjectEntity, ProjectEntity, RegulationEntity, RegulationStatusEntity, ReleaseArtifactEntity, ReleaseEntity, UploadVersionEntity} from '@app/common/database/entities';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -15,6 +15,9 @@ import { FileUploadService } from './file-upload.service';
 import { MinioClientService } from '@app/common/AWS/minio-client.service';
 import { SafeCronModule } from '@app/common/safe-cron';
 import { ReleaseService } from './releases.service';
+import { RegulationStatusService } from './regulation-status.service';
+import { RegulationEnforcementService } from './regulation-enforcement.service';
+import { JUnitParserService } from './utils/junit-parser.service';
 
 @Module({
   imports: [
@@ -29,10 +32,28 @@ import { ReleaseService } from './releases.service';
     JwtModule.registerAsync({
       useClass: UploadJwtConfigService
     }),
-    TypeOrmModule.forFeature([UploadVersionEntity, ProjectEntity, FileUploadEntity, ReleaseEntity, ReleaseArtifactEntity, MemberProjectEntity]),
+    TypeOrmModule.forFeature([
+      UploadVersionEntity, 
+      ProjectEntity,
+       FileUploadEntity, 
+       ReleaseEntity, 
+       ReleaseArtifactEntity, 
+       MemberProjectEntity,
+       RegulationStatusEntity,
+       RegulationEntity]),
     SafeCronModule
   ],
   controllers: [UploadController],
-  providers: [UploadService, S3Service, DockerDownloadService, FileUploadService, MinioClientService, ReleaseService],
+  providers: [
+    UploadService, 
+    S3Service, 
+    DockerDownloadService, 
+    FileUploadService, 
+    MinioClientService, 
+    ReleaseService,
+    RegulationStatusService,
+    RegulationEnforcementService,
+    JUnitParserService
+  ],
 })
 export class UploadModule {}
