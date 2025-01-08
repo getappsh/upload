@@ -16,7 +16,7 @@ export class RegulationStatusParams {
   version: string
 
 
-  @ApiProperty({ description: 'ID of the regulation' })
+  @ApiProperty({ description: 'Name of the regulation' })
   @IsString()
   @IsNotEmpty()
   @Type(() => String)
