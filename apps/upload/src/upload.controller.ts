@@ -101,14 +101,18 @@ export class UploadController {
 
   @TokenVerification()
   @MessagePattern(UploadTopics.SET_VERSION_REGULATION_STATUS)
-  setRegulationStatus(@RpcPayload() dto: SetRegulationStatusDto) {
-    return this.regulationService.setRegulationStatus(dto)
+  async setRegulationStatus(@RpcPayload() dto: SetRegulationStatusDto) {
+    const res = await this.regulationService.setRegulationStatus(dto)
+    this.releasesService.refreshReleaseState(dto);
+    return res
   }
 
   @TokenVerification(RoleInProject.PROJECT_OWNER)
   @MessagePattern(UploadTopics.SET_VERSION_REGULATION_COMPLIANCE)
-  setComplianceStatus(@RpcPayload() dto: SetRegulationCompliancyDto) {
-    return this.regulationService.setComplianceStatus(dto)
+  async setComplianceStatus(@RpcPayload() dto: SetRegulationCompliancyDto) {
+    const res =  await this.regulationService.setComplianceStatus(dto)
+    this.releasesService.refreshReleaseState(dto);
+    return res
   }
 
   @TokenVerification()
@@ -126,8 +130,10 @@ export class UploadController {
 
   @TokenVerification()
   @MessagePattern(UploadTopics.DELETE_VERSION_REGULATION_STATUS)
-  deleteVersionRegulationStatus(@RpcPayload() params: RegulationStatusParams) {
-    return this.regulationService.deleteVersionRegulationStatus(params)
+  async deleteVersionRegulationStatus(@RpcPayload() params: RegulationStatusParams) {
+    const res = await this.regulationService.deleteVersionRegulationStatus(params)
+    this.releasesService.refreshReleaseState(params);
+    return res
   }
 
 

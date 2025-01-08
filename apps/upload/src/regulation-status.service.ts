@@ -136,6 +136,7 @@ export class RegulationStatusService {
       },
     });
 
+    // TODO: Delete file if needed?
     let res 
     if (status) {
       res = await this.regulationStatusRepo.delete({

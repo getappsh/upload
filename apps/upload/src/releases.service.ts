@@ -1,11 +1,12 @@
-import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity } from "@app/common/database/entities";
-import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto } from "@app/common/dto/upload";
+import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity } from "@app/common/database/entities";
+import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactDto } from "@app/common/dto/upload";
 import { Injectable, Logger, NotFoundException, OnModuleInit } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { FileUploadService } from "./file-upload.service";
 import { UpsertOptions } from "typeorm/repository/UpsertOptions";
 import * as semver from 'semver';
+import { RegulationStatusService } from "./regulation-status.service";
 
 
 @Injectable()
@@ -15,7 +16,9 @@ export class ReleaseService {
   constructor(
     @InjectRepository(ReleaseEntity) private readonly releaseRepo: Repository<ReleaseEntity>,
     @InjectRepository(ReleaseArtifactEntity) private readonly artifactRepo: Repository<ReleaseArtifactEntity>,
+    @InjectRepository(RegulationEntity) private readonly regulationRepo: Repository<RegulationEntity>,
     private readonly fileUploadService: FileUploadService,
+    private readonly regulationService: RegulationStatusService,
   ){}
   
   async setRelease(dto: SetReleaseDto): Promise<ReleaseDto>{
@@ -31,6 +34,8 @@ export class ReleaseService {
 
     this.logger.debug(`Saving release: ${JSON.stringify(releaseEntity)}`);
     await this.releaseRepo.upsert(releaseEntity, ['project', 'version']);
+
+    await this.refreshReleaseState(dto);
 
     return this.getRelease({projectId: dto.projectId, version: dto.version});
   }
@@ -122,5 +127,33 @@ export class ReleaseService {
     res.artifactId = saved.identifiers[0].id;
     
     return res;
+  }
+
+  async refreshReleaseState(params: ReleaseParams): Promise<void> {
+    this.logger.log(`Refreshing release state for project: ${params.projectId}, version: ${params.version}`);
+    let refresh = true;
+
+    const release = await this.getRelease(params).catch(null);
+    if (!release) return;
+    
+    // TODO check if all file where uploaded
+
+    if (release.status !== ReleaseStatusEnum.IN_REVIEW) return;
+
+    const regulations = await this.regulationRepo.find({where: {project: {id: params.projectId}}});
+    const statuses = await this.regulationService.getVersionRegulationsStatuses({projectId: params.projectId, version: params.version});
+
+    for (const regulation of regulations) {
+      const status = statuses.find((s) => s.regulation === regulation.name);
+      if (!status || !status.isCompliant) {
+        this.logger.warn(`Regulation ${regulation.name} for project: ${params.projectId}, version: ${params.version} is not compliant`);
+        refresh = false;
+      }
+    }
+   
+    if (refresh){
+      this.logger.log(`Setting release status to released for project: ${params.projectId}, version: ${params.version}`);
+      await this.releaseRepo.update({version: params.version, project: {id: params.projectId}}, {status: ReleaseStatusEnum.RELEASED});
+    }
   }
 }

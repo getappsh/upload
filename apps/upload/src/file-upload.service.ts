@@ -5,8 +5,8 @@ import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { LessThanOrEqual, Repository } from "typeorm";
 import { MinioClientService } from "@app/common/AWS/minio-client.service";
-import { SafeCronService } from "@app/common/safe-cron/safe-cron.service";
 import { TimeoutRepeatTask } from "@app/common/safe-cron/timeout-repeated-task.decorator";
+import stream from 'stream';
 
 @Injectable()
 export class FileUploadService{
@@ -47,6 +47,22 @@ export class FileUploadService{
       throw error;
     }
 
+  }
+
+  async getFileDownloadUrl(id: number): Promise<string> {
+    const file = await this.getFileById(id);
+    return this.minioClient.generatePresignedDownloadUrl(this.bucketName, file.objectKey);
+  }
+
+
+  async getFileStream(id: number): Promise<stream.Readable> {
+    const file = await this.getFileById(id);
+    return this.minioClient.getObject(this.bucketName, file.objectKey);
+  }
+
+
+  private getFileById(id: number): Promise<FileUploadEntity> {
+    return this.uploadRepo.findOneBy({id}).catch(err => {throw new Error(`File upload not found: ${id}, error: ${err}`)});
   }
 
   private createObjectKey(dto: CreateFileUploadUrlDto) {

@@ -1,6 +1,9 @@
-import { RegulationEntity } from "@app/common/database/entities";
-import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import { RegulationEntity, ReleaseArtifactEntity } from "@app/common/database/entities";
+import { Injectable, Logger } from "@nestjs/common";
 import { JUnitParserService } from "./utils/junit-parser.service";
+import { FileUploadService } from "./file-upload.service";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
 
 @Injectable()
 export class RegulationEnforcementService {
@@ -8,6 +11,8 @@ export class RegulationEnforcementService {
 
   constructor(
     private readonly junitParser: JUnitParserService,
+    private readonly fileUploadService: FileUploadService,
+    @InjectRepository(ReleaseArtifactEntity) private readonly artifactRepo: Repository<ReleaseArtifactEntity>,    
   ){}
 
   async enforce(regulation: RegulationEntity, value: string): Promise<boolean> {
@@ -21,7 +26,8 @@ export class RegulationEnforcementService {
         return Number(regulation.config) <= Number(value);
 
       case 'JUnit':
-        const xmlContent = await this.getJUnitXmlContent(value);
+        if (isNaN(+value)) return false;
+        const xmlContent = await this.getJUnitXmlContent(Number(value));
         const summary = this.junitParser.extractSummary(xmlContent);
         const passPercentage = (summary.passed / summary.total) * 100;
 
@@ -37,27 +43,14 @@ export class RegulationEnforcementService {
   }
   
 
-  validateConfig(regulation: RegulationEntity) {
-    switch (regulation.type.name) {
-      case 'Boolean':
-        regulation.config = undefined;
-        break;
-      case 'Threshold':
-      case 'JUnit':
-        const configValue = Number(regulation.config);
-        if (isNaN(configValue)) {
-            throw new BadRequestException('Config value for Threshold type must be a number');
-        }
-        break
-    }
-  }
+  private async getJUnitXmlContent(artifactId: number): Promise<string> {
+    const artifact = await this.artifactRepo.findOneOrFail({where: {id: artifactId}, relations: ['fileUpload'], select: {fileUpload: {id: true}}});
+    const stream = await this.fileUploadService.getFileStream(artifact.fileUpload?.id);
   
-
-  private async getJUnitXmlContent(url: string): Promise<string> {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch JUnit XML content from ${url}`);
+    const chunks = [];  
+    for await (const chunk of stream) {
+        chunks.push(Buffer.from(chunk));
     }
-    return await response.text();
+    return Buffer.concat(chunks).toString('utf8');
   }
 }
