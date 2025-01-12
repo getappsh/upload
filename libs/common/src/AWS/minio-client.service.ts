@@ -1,11 +1,11 @@
-import { Injectable, OnApplicationBootstrap, Logger } from "@nestjs/common";
+import { Injectable, OnApplicationBootstrap, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import * as Minio from 'minio';
 import stream from 'stream';
 
 
 @Injectable()
-export class MinioClientService implements OnApplicationBootstrap{
+export class MinioClientService implements OnModuleInit{
 
   private readonly logger = new Logger(MinioClientService.name);
   private readonly client: Minio.Client;
@@ -65,7 +65,7 @@ export class MinioClientService implements OnApplicationBootstrap{
     return this.client.bucketExists(bucketName)
   }
 
-  async onApplicationBootstrap() {
+  async onModuleInit() {
     const bucketName = this.configService.get('BUCKET_NAME');
     try{
       const exists = await this.bucketExists(bucketName);
