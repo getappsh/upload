@@ -19,7 +19,11 @@ export class ReleaseService {
     @InjectRepository(RegulationEntity) private readonly regulationRepo: Repository<RegulationEntity>,
     private readonly fileUploadService: FileUploadService,
     private readonly regulationService: RegulationStatusService,
-  ){}
+  ){
+
+    this.fileUploadService.onFileCreate(file => this.onFileCreate(file));
+    this.fileUploadService.onFileDelete(file => this.onFileDelete(file));
+  }
   
   async setRelease(dto: SetReleaseDto): Promise<ReleaseDto>{
     this.logger.log(`Setting release for project: ${dto.projectId}, version: ${dto.version}`);
@@ -129,6 +133,30 @@ export class ReleaseService {
     return res;
   }
 
+  private async onFileCreate(fileUpload: FileUploadEntity) {
+    const release = await this.releaseRepo.findOne({
+      select: {project: {id: true}},
+      where: {artifacts: {fileUpload: {objectKey: fileUpload.objectKey}}},
+      relations: {project: true}
+    })
+    if (release) {
+      this.logger.debug(`onFileCreate: File is part of release: ${release.version}, of project: ${release.project.id}`);
+      this.refreshReleaseState({projectId: release.project.id, version: release.version});
+    }
+  }
+
+  private async onFileDelete(fileUpload: FileUploadEntity) {
+    const release = await this.releaseRepo.findOne({
+      select: {project: {id: true}},
+      where: {artifacts: {fileUpload: {objectKey: fileUpload.objectKey}}},
+      relations: {project: true}
+    })
+    if (release) {
+      this.logger.debug(`onFileDelete: File is part of release: ${release.version}, of project: ${release.project.id}`);
+      this.refreshReleaseState({projectId: release.project.id, version: release.version});
+    }
+  }
+
   async refreshReleaseState(params: ReleaseParams): Promise<void> {
     this.logger.log(`Refreshing release state for project: ${params.projectId}, version: ${params.version}`);
 
@@ -147,7 +175,6 @@ export class ReleaseService {
       return
     }
     
-    if (release.status === ReleaseStatusEnum.IN_REVIEW){
       const regulations = await this.regulationRepo.find({where: {project: {id: params.projectId}}});
       const statuses = await this.regulationService.getVersionRegulationsStatuses({projectId: params.projectId, version: params.version});
 
@@ -161,10 +188,13 @@ export class ReleaseService {
         }
       }
     
-      if (regulationsCompliant){
+      if (regulationsCompliant && release.status === ReleaseStatusEnum.IN_REVIEW){
         this.logger.log(`Setting release status to released for project: ${params.projectId}, version: ${params.version}`);
         await this.releaseRepo.update({version: params.version, project: {id: params.projectId}}, {status: ReleaseStatusEnum.RELEASED});
-      } 
-    }
+      }else if (!regulationsCompliant && release.status === ReleaseStatusEnum.RELEASED){
+        this.logger.log(`Setting release status to in_review for project: ${params.projectId}, version: ${params.version}`);
+        await this.releaseRepo.update({version: params.version, project: {id: params.projectId}}, {status: ReleaseStatusEnum.IN_REVIEW});
+      }
+
   }
 }

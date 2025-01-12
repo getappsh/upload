@@ -7,6 +7,8 @@ import { In, LessThanOrEqual, Repository } from "typeorm";
 import { MinioClientService } from "@app/common/AWS/minio-client.service";
 import { TimeoutRepeatTask } from "@app/common/safe-cron/timeout-repeated-task.decorator";
 import stream from 'stream';
+import {EventEmitter} from 'eventemitter3';
+
 
 @Injectable()
 export class FileUploadService{
@@ -14,6 +16,7 @@ export class FileUploadService{
   private static readonly OBJECT_PREFIX = 'upload/';
   private readonly logger = new Logger(FileUploadService.name);
   private readonly bucketName = this.configService.get('BUCKET_NAME');
+  private emitter: EventEmitter = new EventEmitter();
 
   constructor(
     private readonly configService: ConfigService,
@@ -69,6 +72,15 @@ export class FileUploadService{
   async getFilesByIds(ids: number[]): Promise<FileUploadEntity[]> {
     return this.uploadRepo.findBy({ id: In(ids) }).catch(err => {throw new Error(`File upload not found: ${ids}, error: ${err}`)});
   }
+
+  async onFileCreate(callback: (file: FileUploadEntity) => void) {
+    this.emitter.on("fileCreated", callback);
+  }
+
+  async onFileDelete(callback: (file: FileUploadEntity) => void) {
+    this.emitter.on("fileDeleted", callback);
+  }
+  
   private createObjectKey(dto: CreateFileUploadUrlDto) {
     if (dto.objectKey) {
       const suffix = dto.objectKey.endsWith('/') ? '' : '/';
@@ -100,14 +112,20 @@ export class FileUploadService{
           file.uploadAt = record?.eventTime;
           file.status = FileUPloadStatusEnum.UPLOADED;
 
-          this.updateUploadFile(file);
+          this.updateUploadFile(file).then(effected => {
+            if (effected > 0) this.emitter.emit("fileCreated", file)
+          });
+          
 
         }else if (eventName.startsWith('s3:ObjectRemoved:')) {
           this.logger.debug(`Object removed: ${JSON.stringify(record)}`);
           const file = new FileUploadEntity();
           file.objectKey = objectKey;
           file.status = FileUPloadStatusEnum.REMOVED;
-          this.updateUploadFile(file);
+          this.updateUploadFile(file).then(effected => {
+            if (effected > 0) this.emitter.emit("fileDeleted", file)
+          });
+
         }
       })
 
@@ -137,12 +155,14 @@ export class FileUploadService{
     await this.uploadRepo.delete({ id });
   }
   
-  async updateUploadFile(file: FileUploadEntity){
+  async updateUploadFile(file: FileUploadEntity): Promise<number> {
     this.logger.log(`Updating file upload: ${file.objectKey}, status: ${file.status}`);
     const res = await this.uploadRepo.update({ objectKey: file.objectKey }, file);
     if (res.affected === 0){
       this.logger.warn(`File upload not found: ${file.objectKey}`);
     } 
+
+    return res.affected
   }
 
 
