@@ -3,7 +3,7 @@ import { CreateFileUploadUrlDto, FileUploadUrlDto } from "@app/common/dto/upload
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
-import { LessThanOrEqual, Repository } from "typeorm";
+import { In, LessThanOrEqual, Repository } from "typeorm";
 import { MinioClientService } from "@app/common/AWS/minio-client.service";
 import { TimeoutRepeatTask } from "@app/common/safe-cron/timeout-repeated-task.decorator";
 import stream from 'stream';
@@ -65,6 +65,10 @@ export class FileUploadService{
     return this.uploadRepo.findOneBy({id}).catch(err => {throw new Error(`File upload not found: ${id}, error: ${err}`)});
   }
 
+
+  async getFilesByIds(ids: number[]): Promise<FileUploadEntity[]> {
+    return this.uploadRepo.findBy({ id: In(ids) }).catch(err => {throw new Error(`File upload not found: ${ids}, error: ${err}`)});
+  }
   private createObjectKey(dto: CreateFileUploadUrlDto) {
     if (dto.objectKey) {
       const suffix = dto.objectKey.endsWith('/') ? '' : '/';

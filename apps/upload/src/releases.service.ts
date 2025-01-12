@@ -1,4 +1,4 @@
-import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity } from "@app/common/database/entities";
+import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum } from "@app/common/database/entities";
 import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactDto } from "@app/common/dto/upload";
 import { Injectable, Logger, NotFoundException, OnModuleInit } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -84,7 +84,7 @@ export class ReleaseService {
   
   async setReleaseArtifact(artifact: SetReleaseArtifactDto): Promise<SetReleaseArtifactResDto>{
     this.logger.log(`Adding release artifact for release: ${artifact.version}, artifactName: ${artifact.artifactName}`);
-    const release = await this.releaseRepo.findOneBy({version: artifact.version});
+    const release = await this.releaseRepo.findOneBy({version: artifact.version, project: {id: artifact.projectId}});
     if (!release){
       this.logger.error(`Release not found for id: ${artifact.version}`);
       throw new NotFoundException(`Release not found for id: ${artifact.version}`);
@@ -131,29 +131,40 @@ export class ReleaseService {
 
   async refreshReleaseState(params: ReleaseParams): Promise<void> {
     this.logger.log(`Refreshing release state for project: ${params.projectId}, version: ${params.version}`);
-    let refresh = true;
 
     const release = await this.getRelease(params).catch(null);
     if (!release) return;
     
-    // TODO check if all file where uploaded
+    const installationArtifacts = release.artifacts.filter((artifact) => artifact?.isInstallationFile)
+    const files = await this.fileUploadService.getFilesByIds(installationArtifacts.map((artifact) => artifact.uploadId));
 
-    if (release.status !== ReleaseStatusEnum.IN_REVIEW) return;
-
-    const regulations = await this.regulationRepo.find({where: {project: {id: params.projectId}}});
-    const statuses = await this.regulationService.getVersionRegulationsStatuses({projectId: params.projectId, version: params.version});
-
-    for (const regulation of regulations) {
-      const status = statuses.find((s) => s.regulation === regulation.name);
-      if (!status || !status.isCompliant) {
-        this.logger.warn(`Regulation ${regulation.name} for project: ${params.projectId}, version: ${params.version} is not compliant`);
-        refresh = false;
-      }
+    if (installationArtifacts.length === 0 
+      || installationArtifacts.length > files.length
+      || files.some((file) => file.status !== FileUPloadStatusEnum.UPLOADED)
+    ){
+      this.logger.warn(`Release ${params.version} for project: ${params.projectId} has no installation file or not all files are uploaded`);
+      await this.releaseRepo.update({version: params.version, project: {id: params.projectId}, status: ReleaseStatusEnum.RELEASED}, {status: ReleaseStatusEnum.IN_REVIEW});
+      return
     }
-   
-    if (refresh){
-      this.logger.log(`Setting release status to released for project: ${params.projectId}, version: ${params.version}`);
-      await this.releaseRepo.update({version: params.version, project: {id: params.projectId}}, {status: ReleaseStatusEnum.RELEASED});
+    
+    if (release.status === ReleaseStatusEnum.IN_REVIEW){
+      const regulations = await this.regulationRepo.find({where: {project: {id: params.projectId}}});
+      const statuses = await this.regulationService.getVersionRegulationsStatuses({projectId: params.projectId, version: params.version});
+
+      let regulationsCompliant = true;
+
+      for (const regulation of regulations) {
+        const status = statuses.find((s) => s.regulation === regulation.name);
+        if (!status || !status.isCompliant) {
+          this.logger.warn(`Regulation ${regulation.name} for project: ${params.projectId}, version: ${params.version} is not compliant`);
+          regulationsCompliant = false;
+        }
+      }
+    
+      if (regulationsCompliant){
+        this.logger.log(`Setting release status to released for project: ${params.projectId}, version: ${params.version}`);
+        await this.releaseRepo.update({version: params.version, project: {id: params.projectId}}, {status: ReleaseStatusEnum.RELEASED});
+      } 
     }
   }
 }
