@@ -1,6 +1,6 @@
 import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum } from "@app/common/database/entities";
-import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactDto } from "@app/common/dto/upload";
-import { Injectable, Logger, NotFoundException, OnModuleInit } from "@nestjs/common";
+import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactDto, ReleaseArtifactParams } from "@app/common/dto/upload";
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { FileUploadService } from "./file-upload.service";
@@ -85,6 +85,25 @@ export class ReleaseService {
     .map((release) => ReleaseDto.fromEntity(release));
   }
   
+
+  async deleteRelease(params: ReleaseParams): Promise<void>{
+    this.logger.log(`Deleting release of project: ${params.projectId}, version: ${params.version}`);
+    const release = await this.getRelease(params);
+    
+    const regulationStatuses = await this.regulationService.getVersionRegulationsStatuses(params);
+    for (const regulationStatus of regulationStatuses) {
+      await this.regulationService.deleteVersionRegulationStatus({projectId: params.projectId, version: params.version, regulation: regulationStatus.regulation})
+      .catch(err => this.logger.error(`Error deleting regulation status: ${regulationStatus.regulation}, error: ${err}`));
+    }
+
+    for (const artifact of release.artifacts) {
+      await this.deleteReleaseArtifact({projectId: params.projectId, version: params.version, artifactId: artifact.id})
+      .catch(err => this.logger.error(`Error deleting release artifact: ${artifact.id}, error: ${err}`));
+    }
+
+    await this.releaseRepo.delete({project: {id: params.projectId}, version: params.version});
+
+  }
   
   async setReleaseArtifact(artifact: SetReleaseArtifactDto): Promise<SetReleaseArtifactResDto>{
     this.logger.log(`Adding release artifact for release: ${artifact.version}, artifactName: ${artifact.artifactName}`);
@@ -133,6 +152,25 @@ export class ReleaseService {
     return res;
   }
 
+  async deleteReleaseArtifact(params: ReleaseArtifactParams): Promise<void>{
+    this.logger.log(`Deleting release artifact of release: ${params.version}, artifact Id: ${params.artifactId}`);
+    const artifact =  await this.artifactRepo.findOne({
+        select: {fileUpload: {id: true}},
+        where: {release: {project: {id: params.projectId}, version: params.version}, id: params.artifactId},
+        relations: {fileUpload: true}
+      });
+
+    if (!artifact){
+      throw new NotFoundException(`Release artifact not found for project: ${params.projectId} release: ${params.version}, artifact Id: ${params.artifactId}`);
+    }
+
+    if (artifact.type == ArtifactTypeEnum.FILE){
+      await this.fileUploadService.deleteFile(artifact.id)
+    }
+
+    await this.artifactRepo.delete({id: params.artifactId})
+  }
+
   private async onFileCreate(fileUpload: FileUploadEntity) {
     const release = await this.releaseRepo.findOne({
       select: {project: {id: true}},
@@ -144,6 +182,7 @@ export class ReleaseService {
       this.refreshReleaseState({projectId: release.project.id, version: release.version});
     }
   }
+
 
   private async onFileDelete(fileUpload: FileUploadEntity) {
     const release = await this.releaseRepo.findOne({

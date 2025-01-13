@@ -3,7 +3,7 @@ import { RoleInProject, UploadVersionEntity } from '@app/common/database/entitie
 import { Controller, Logger } from '@nestjs/common';
 import { MessagePattern, RpcException } from '@nestjs/microservices';
 import { UploadService } from './upload.service';
-import { CreateFileUploadUrlDto, ReleaseParams, SetReleaseArtifactDto, SetReleaseDto, UpdateUploadStatusDto } from '@app/common/dto/upload';
+import { CreateFileUploadUrlDto, ReleaseArtifactParams, ReleaseParams, SetReleaseArtifactDto, SetReleaseDto, UpdateUploadStatusDto } from '@app/common/dto/upload';
 import { RpcPayload } from '@app/common/microservice-client';
 import * as fs from 'fs';
 import { FileUploadService } from './file-upload.service';
@@ -82,8 +82,7 @@ export class UploadController {
   @TokenVerification()
   @MessagePattern(UploadTopics.DELETE_RELEASE)
   deleteRelease(@RpcPayload() params: ReleaseParams){
-    // return this.releasesService.deleteRelease(params);
-    return "Not implemented"
+    return this.releasesService.deleteRelease(params);
   }
 
   @TokenVerification()
@@ -94,9 +93,8 @@ export class UploadController {
 
   @TokenVerification()
   @MessagePattern(UploadTopics.DELETE_RELEASE_ARTIFACT)
-  deleteReleaseArtifact(@RpcPayload() params: ReleaseParams){
-    // return this.releasesService.deleteReleaseArtifact(params);
-    return "Not implemented"
+  deleteReleaseArtifact(@RpcPayload() params: ReleaseArtifactParams){
+    return this.releasesService.deleteReleaseArtifact(params);
   }
 
   @TokenVerification()
