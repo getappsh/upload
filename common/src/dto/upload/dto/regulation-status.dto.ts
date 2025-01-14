@@ -2,19 +2,15 @@ import { RegulationStatusEntity } from "@app/common/database/entities";
 import { ApiProperty } from "@nestjs/swagger";
 import { Type } from "class-transformer";
 import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString } from "class-validator";
+import { ProjectIdentifierParams } from "../../project-management";
 
-export class RegulationStatusParams {
-  @ApiProperty({ description: 'ID of the Project' })
-  @IsNumber()
-  @Type(() => Number)
-  projectId: number
+export class RegulationStatusParams extends ProjectIdentifierParams {
 
   @ApiProperty({ description: 'Component Version of the regulation' })
   @IsString()
   @IsNotEmpty()
   @Type(() => String)
   version: string
-
 
   @ApiProperty({ description: 'Name of the regulation' })
   @IsString()
@@ -23,27 +19,16 @@ export class RegulationStatusParams {
   regulation: string
 }
 
-export class VersionRegulationStatusParams {
-  @ApiProperty({ description: 'ID of the Project' })
-  @IsNumber()
-  @Type(() => Number)
-  projectId: number
-
-  @ApiProperty({ description: 'Component Version of the regulation' })
-  @IsString()
-  @IsNotEmpty()
-  @Type(() => String)
-  version: string
-
-}
-
 export class SetRegulationStatusDto{
 
-  projectId: number
+  projectIdentifier: string |  number
 
   regulation: string
 
   version: string
+
+  projectId: number
+
 
   @ApiProperty({ description: 'Value of the regulation' })
   @IsString()
@@ -59,11 +44,13 @@ export class SetRegulationStatusDto{
 
 export class  SetRegulationCompliancyDto {
 
-  projectId: number
+  projectIdentifier: string |  number
 
   regulation: string
 
   version: string
+
+  projectId: number
 
   @ApiProperty({ description: 'Compliancy of the regulation' })
   @IsBoolean()
