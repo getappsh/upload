@@ -86,7 +86,7 @@ export class ReleaseService {
   }
   
 
-  async deleteRelease(params: ReleaseParams): Promise<void>{
+  async deleteRelease(params: ReleaseParams): Promise<string>{
     this.logger.log(`Deleting release of project: ${params.projectId}, version: ${params.version}`);
     const release = await this.getRelease(params);
     
@@ -102,6 +102,8 @@ export class ReleaseService {
     }
 
     await this.releaseRepo.delete({project: {id: params.projectId}, version: params.version});
+
+    return "Release deleted"
 
   }
   
@@ -152,7 +154,7 @@ export class ReleaseService {
     return res;
   }
 
-  async deleteReleaseArtifact(params: ReleaseArtifactParams): Promise<void>{
+  async deleteReleaseArtifact(params: ReleaseArtifactParams): Promise<string>{
     this.logger.log(`Deleting release artifact of release: ${params.version}, artifact Id: ${params.artifactId}`);
     const artifact =  await this.artifactRepo.findOne({
         select: {fileUpload: {id: true}},
@@ -169,6 +171,7 @@ export class ReleaseService {
     }
 
     await this.artifactRepo.delete({id: params.artifactId})
+    return "Release Artifact deleted"
   }
 
   private async onFileCreate(fileUpload: FileUploadEntity) {
