@@ -41,7 +41,7 @@ export class ReleaseService {
 
     await this.refreshReleaseState(dto);
 
-    return this.getRelease({projectId: dto.projectId, version: dto.version});
+    return this.getRelease(dto);
   }
 
   
@@ -92,12 +92,12 @@ export class ReleaseService {
     
     const regulationStatuses = await this.regulationService.getVersionRegulationsStatuses(params);
     for (const regulationStatus of regulationStatuses) {
-      await this.regulationService.deleteVersionRegulationStatus({projectId: params.projectId, version: params.version, regulation: regulationStatus.regulation})
+      await this.regulationService.deleteVersionRegulationStatus({regulation: regulationStatus.regulation, ...params})
       .catch(err => this.logger.error(`Error deleting regulation status: ${regulationStatus.regulation}, error: ${err}`));
     }
 
     for (const artifact of release.artifacts) {
-      await this.deleteReleaseArtifact({projectId: params.projectId, version: params.version, artifactId: artifact.id})
+      await this.deleteReleaseArtifact({artifactId: artifact.id, ...params})
       .catch(err => this.logger.error(`Error deleting release artifact: ${artifact.id}, error: ${err}`));
     }
 
@@ -179,7 +179,7 @@ export class ReleaseService {
     })
     if (release) {
       this.logger.debug(`onFileCreate: File is part of release: ${release.version}, of project: ${release.project.id}`);
-      this.refreshReleaseState({projectId: release.project.id, version: release.version});
+      this.refreshReleaseState({projectId: release.project.id, version: release.version} as ReleaseParams);
     }
   }
 
@@ -192,7 +192,7 @@ export class ReleaseService {
     })
     if (release) {
       this.logger.debug(`onFileDelete: File is part of release: ${release.version}, of project: ${release.project.id}`);
-      this.refreshReleaseState({projectId: release.project.id, version: release.version});
+      this.refreshReleaseState({projectId: release.project.id, version: release.version} as ReleaseParams);
     }
   }
 
@@ -215,7 +215,7 @@ export class ReleaseService {
     }
     
       const regulations = await this.regulationRepo.find({where: {project: {id: params.projectId}}});
-      const statuses = await this.regulationService.getVersionRegulationsStatuses({projectId: params.projectId, version: params.version});
+      const statuses = await this.regulationService.getVersionRegulationsStatuses(params);
 
       let regulationsCompliant = true;
 

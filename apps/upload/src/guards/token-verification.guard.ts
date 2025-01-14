@@ -16,9 +16,9 @@ export class TokenVerificationGuard implements CanActivate {
         const request = extractRequest(context)
         const headers = extractHeaders(context)
 
-        const projectId = request?.projectId;
-        if (!projectId){
-            throw new ForbiddenException(`ProjectId is not found in the request.`);
+        let projectIdentifier = request.projectIdentifier ?? request?.projectId;
+        if (!projectIdentifier){
+            throw new ForbiddenException(`Project Identifier is not found in the request.`);
         }
 
         const user = headers?.user;
@@ -28,7 +28,7 @@ export class TokenVerificationGuard implements CanActivate {
         if (projectToken){
             project = await this.uploadService.verifyToken(projectToken)
         }else if (user?.email){
-            const memberProject = await this.uploadService.getMemberInProjectByEmail(projectId, user?.email);
+            const memberProject = await this.uploadService.getMemberInProjectByEmail(projectIdentifier, user?.email);
 
             if (!memberProject){
                 throw new ForbiddenException(`User ${user?.email} is not a member of the project.`);
@@ -43,13 +43,14 @@ export class TokenVerificationGuard implements CanActivate {
 
             project = memberProject?.project
         }else{
-            throw new ForbiddenException(`Not allowed in this project: ${projectId}`)
+            throw new ForbiddenException(`Not allowed in this project: ${projectIdentifier}`)
         }
         
-        if (!project || project.id != projectId){
-            throw new ForbiddenException(`Not allowed in this project: ${projectId}`)
+        if (!project || (project.id != projectIdentifier && project.name != projectIdentifier)){
+            throw new ForbiddenException(`Not allowed in this project: ${projectIdentifier}`)
         }
 
+        request.projectId = project.id;
         request.project = project;
         return true
     }

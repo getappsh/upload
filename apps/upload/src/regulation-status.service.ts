@@ -1,5 +1,5 @@
 import { RegulationEntity, RegulationStatusEntity, ReleaseEntity } from "@app/common/database/entities";
-import { RegulationStatusDto, RegulationStatusParams, SetRegulationCompliancyDto, SetRegulationStatusDto, VersionRegulationStatusParams } from "@app/common/dto/upload";
+import { RegulationStatusDto, RegulationStatusParams, ReleaseParams, SetRegulationCompliancyDto, SetRegulationStatusDto } from "@app/common/dto/upload";
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
@@ -104,7 +104,7 @@ export class RegulationStatusService {
     return new RegulationStatusDto().fromRegulationStatusEntity(regulationStatus);
   }
 
-  async getVersionRegulationsStatuses(params: VersionRegulationStatusParams): Promise<RegulationStatusDto[]> {
+  async getVersionRegulationsStatuses(params: ReleaseParams): Promise<RegulationStatusDto[]> {
     this.logger.log(`Get regulation statuses for project id ${params.projectId} and version id ${params.version}`);
 
     const regulationStatuses = await this.regulationStatusRepo.find({ 

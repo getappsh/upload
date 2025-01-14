@@ -235,12 +235,17 @@ export class UploadService {
     return project;
   }
 
-  getMemberInProjectByEmail(projectId: number, email: string) {
-    this.logger.debug(`Get member in project with email: ${email} and projectId: ${projectId}`)
+  getMemberInProjectByEmail(projectIdentifier: number | string,  email: string) {
+    this.logger.verbose(`Get member in project: ${projectIdentifier}, with email: ${email}`)
+
+    const projectCondition = typeof projectIdentifier === 'number'
+    ? { id: projectIdentifier }
+    : { name: projectIdentifier };
+
     return this.memberProjectRepo.findOne({
       relations: ['project', 'member'],
       where: {
-        project: { id: projectId },
+        project: projectCondition,
         member: { email: email }
       }
     });

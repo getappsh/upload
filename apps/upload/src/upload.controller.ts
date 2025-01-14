@@ -10,7 +10,7 @@ import { FileUploadService } from './file-upload.service';
 import { ReleaseService } from './releases.service';
 import { TokenVerification } from './decorators/token-verification.decorator';
 import { RegulationStatusService } from './regulation-status.service';
-import { RegulationStatusParams, SetRegulationCompliancyDto, SetRegulationStatusDto, VersionRegulationStatusParams } from '@app/common/dto/upload';
+import { RegulationStatusParams, SetRegulationCompliancyDto, SetRegulationStatusDto } from '@app/common/dto/upload';
 
 
 @Controller()
@@ -121,7 +121,7 @@ export class UploadController {
 
   @TokenVerification()
   @MessagePattern(UploadTopics.GET_VERSION_REGULATIONS_STATUSES)
-  getVersionRegulationsStatuses(@RpcPayload() dto: VersionRegulationStatusParams) {
+  getVersionRegulationsStatuses(@RpcPayload() dto: ReleaseParams) {
     return this.regulationService.getVersionRegulationsStatuses(dto)
 
   }
