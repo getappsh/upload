@@ -18,6 +18,7 @@ import { ReleaseService } from './releases.service';
 import { RegulationStatusService } from './regulation-status.service';
 import { RegulationEnforcementService } from './regulation-enforcement.service';
 import { JUnitParserService } from './utils/junit-parser.service';
+import { PROJECT_ACCESS_SERVICE } from '@app/common/utils/project-access';
 
 @Module({
   imports: [
@@ -53,7 +54,11 @@ import { JUnitParserService } from './utils/junit-parser.service';
     ReleaseService,
     RegulationStatusService,
     RegulationEnforcementService,
-    JUnitParserService
+    JUnitParserService,
+    {
+      provide: PROJECT_ACCESS_SERVICE,
+      useClass: UploadService
+    }
   ],
 })
 export class UploadModule {}

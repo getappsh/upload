@@ -8,9 +8,9 @@ import { RpcPayload } from '@app/common/microservice-client';
 import * as fs from 'fs';
 import { FileUploadService } from './file-upload.service';
 import { ReleaseService } from './releases.service';
-import { TokenVerification } from './decorators/token-verification.decorator';
 import { RegulationStatusService } from './regulation-status.service';
 import { RegulationStatusParams, SetRegulationCompliancyDto, SetRegulationStatusDto } from '@app/common/dto/upload';
+import { ValidateProjectAnyAccess } from '@app/common/utils/project-access';
 
 
 @Controller()
@@ -25,19 +25,19 @@ export class UploadController {
 
   ) {}
   
-  @TokenVerification()
+  @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.UPLOAD_ARTIFACT)
   uploadArtifact(@RpcPayload() data: any): Promise<UploadVersionEntity | RpcException>{
     return this.uploadService.uploadArtifact(data);
   }
 
-  @TokenVerification()
+  @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.UPLOAD_MANIFEST)
   uploadManifest(@RpcPayload() manifest: {any: any}){
     return this.uploadService.uploadManifest(manifest);
   }
 
-  @TokenVerification()
+  @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.UPDATE_UPLOAD_STATUS)
   updateUploadStatus(@RpcPayload() updateUploadStatusDto: UpdateUploadStatusDto){
     return this.uploadService.updateUploadStatus(updateUploadStatusDto);
@@ -61,43 +61,43 @@ export class UploadController {
   }
 
 
-  @TokenVerification()
+  @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.SET_RELEASE)
   setRelease(@RpcPayload() release: SetReleaseDto){
     return this.releasesService.setRelease(release);
   }
 
-  @TokenVerification()
+  @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.GET_RELEASES)
   getReleases(@RpcPayload('projectId') projectId: number){
     return this.releasesService.getReleases(projectId);
   }
 
-  @TokenVerification()
+  @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.GET_RELEASE_BY_VERSION)
   getRelease(@RpcPayload() params: ReleaseParams){
     return this.releasesService.getRelease(params);
   }
 
-  @TokenVerification()
+  @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.DELETE_RELEASE)
   deleteRelease(@RpcPayload() params: ReleaseParams){
     return this.releasesService.deleteRelease(params);
   }
 
-  @TokenVerification()
+  @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.SET_RELEASE_ARTIFACT)
   setReleaseArtifact(@RpcPayload() artifact: SetReleaseArtifactDto){
     return this.releasesService.setReleaseArtifact(artifact);
   }
 
-  @TokenVerification()
+  @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.DELETE_RELEASE_ARTIFACT)
   deleteReleaseArtifact(@RpcPayload() params: ReleaseArtifactParams){
     return this.releasesService.deleteReleaseArtifact(params);
   }
 
-  @TokenVerification()
+  @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.SET_VERSION_REGULATION_STATUS)
   async setRegulationStatus(@RpcPayload() dto: SetRegulationStatusDto) {
     const res = await this.regulationService.setRegulationStatus(dto)
@@ -105,7 +105,7 @@ export class UploadController {
     return res
   }
 
-  @TokenVerification(RoleInProject.PROJECT_OWNER)
+  @ValidateProjectAnyAccess(RoleInProject.PROJECT_OWNER)
   @MessagePattern(UploadTopics.SET_VERSION_REGULATION_COMPLIANCE)
   async setComplianceStatus(@RpcPayload() dto: SetRegulationCompliancyDto) {
     const res =  await this.regulationService.setComplianceStatus(dto)
@@ -113,20 +113,20 @@ export class UploadController {
     return res
   }
 
-  @TokenVerification()
+  @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.GET_VERSION_REGULATION_STATUS_BY_ID)
   getVersionRegulationStatus(@RpcPayload() params: RegulationStatusParams) {
     return this.regulationService.getVersionRegulationStatus(params)
   }
 
-  @TokenVerification()
+  @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.GET_VERSION_REGULATIONS_STATUSES)
   getVersionRegulationsStatuses(@RpcPayload() dto: ReleaseParams) {
     return this.regulationService.getVersionRegulationsStatuses(dto)
 
   }
 
-  @TokenVerification()
+  @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.DELETE_VERSION_REGULATION_STATUS)
   async deleteVersionRegulationStatus(@RpcPayload() params: RegulationStatusParams) {
     const res = await this.regulationService.deleteVersionRegulationStatus(params)
