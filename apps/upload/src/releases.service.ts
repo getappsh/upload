@@ -1,8 +1,8 @@
 import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum } from "@app/common/database/entities";
-import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactDto, ReleaseArtifactParams } from "@app/common/dto/upload";
+import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams } from "@app/common/dto/upload";
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { Not, Repository } from "typeorm";
 import { FileUploadService } from "./file-upload.service";
 import { UpsertOptions } from "typeorm/repository/UpsertOptions";
 import * as semver from 'semver';
@@ -35,6 +35,7 @@ export class ReleaseService {
     releaseEntity.releaseNotes = dto?.releaseNotes;;
     releaseEntity.metadata = dto?.metadata;
     releaseEntity.status = dto?.isDraft === true ? ReleaseStatusEnum.DRAFT : ReleaseStatusEnum.IN_REVIEW;
+    releaseEntity.requiredRegulationsCount = await this.regulationRepo.count({where: {project: {id: dto.projectId}}})
 
     this.logger.debug(`Saving release: ${JSON.stringify(releaseEntity)}`);
     await this.releaseRepo.upsert(releaseEntity, ['project', 'version']);
@@ -205,38 +206,52 @@ export class ReleaseService {
     const release = await this.getRelease(params).catch(null);
     if (!release) return;
     
-    const installationArtifacts = release.artifacts.filter((artifact) => artifact?.isInstallationFile)
-    const files = await this.fileUploadService.getFilesByIds(installationArtifacts.map((artifact) => artifact.uploadId));
+    const regulations = await this.regulationRepo.find({where: {project: {id: params.projectId}}});
+    const statuses = await this.regulationService.getVersionRegulationsStatuses(params);
 
-    if (installationArtifacts.length === 0 
-      || installationArtifacts.length > files.length
-      || files.some((file) => file.status !== FileUPloadStatusEnum.UPLOADED)
-    ){
-      this.logger.warn(`Release ${params.version} for project: ${params.projectId} has no installation file or not all files are uploaded`);
-      await this.releaseRepo.update({version: params.version, project: {id: params.projectId}, status: ReleaseStatusEnum.RELEASED}, {status: ReleaseStatusEnum.IN_REVIEW});
-      return
-    }
-    
-      const regulations = await this.regulationRepo.find({where: {project: {id: params.projectId}}});
-      const statuses = await this.regulationService.getVersionRegulationsStatuses(params);
-
-      let regulationsCompliant = true;
-
-      for (const regulation of regulations) {
-        const status = statuses.find((s) => s.regulation === regulation.name);
-        if (!status || !status.isCompliant) {
-          this.logger.warn(`Regulation ${regulation.name} for project: ${params.projectId}, version: ${params.version} is not compliant`);
-          regulationsCompliant = false;
-        }
+    let regulationsCompliant = true;
+    let numCompliant = 0;
+    for (const regulation of regulations) {
+      const status = statuses.find((s) => s.regulation === regulation.name);
+      if (!status || !status.isCompliant) {
+        this.logger.warn(`Regulation ${regulation.name} for project: ${params.projectId}, version: ${params.version} is not compliant`);
+        regulationsCompliant = false;
+      }else {
+        numCompliant++;
       }
-    
-      if (regulationsCompliant && release.status === ReleaseStatusEnum.IN_REVIEW){
+    }
+
+    this.logger.log(`Release: ${params.version} for project: ${params.projectId} has ${numCompliant} out of ${regulations.length} regulations compliant`);
+
+    await this.releaseRepo.update({
+      version: params.version, 
+      project: {id: params.projectId}, 
+      status: Not(ReleaseStatusEnum.RELEASED)}, 
+    {
+      requiredRegulationsCount: regulations.length,
+      compliantRegulationsCount: numCompliant
+    });
+
+    if (regulationsCompliant && release.status === ReleaseStatusEnum.IN_REVIEW){
+      // check if there are installation files at all
+      const installationArtifacts = release.artifacts.filter((artifact) => artifact?.isInstallationFile)
+      const files = await this.fileUploadService.getFilesByIds(installationArtifacts.map((artifact) => artifact.uploadId));
+      if (installationArtifacts.length === 0 
+        || installationArtifacts.length > files.length
+        || files.some((file) => file.status !== FileUPloadStatusEnum.UPLOADED)
+      ){
+        this.logger.warn(`Release ${params.version} for project: ${params.projectId} has no installation file or not all files are uploaded`);
+        await this.releaseRepo.update({version: params.version, project: {id: params.projectId}, status: ReleaseStatusEnum.RELEASED}, {status: ReleaseStatusEnum.IN_REVIEW});
+      }else {
         this.logger.log(`Setting release status to released for project: ${params.projectId}, version: ${params.version}`);
         await this.releaseRepo.update({version: params.version, project: {id: params.projectId}}, {status: ReleaseStatusEnum.RELEASED});
-      }else if (!regulationsCompliant && release.status === ReleaseStatusEnum.RELEASED){
-        this.logger.log(`Setting release status to in_review for project: ${params.projectId}, version: ${params.version}`);
-        await this.releaseRepo.update({version: params.version, project: {id: params.projectId}}, {status: ReleaseStatusEnum.IN_REVIEW});
       }
+    }else if (!regulationsCompliant && release.status === ReleaseStatusEnum.RELEASED){
+      this.logger.log(`Setting release status to in_review for project: ${params.projectId}, version: ${params.version}`);
+      await this.releaseRepo.update({version: params.version, project: {id: params.projectId}}, {status: ReleaseStatusEnum.IN_REVIEW});
+    }
+
+
 
   }
 }

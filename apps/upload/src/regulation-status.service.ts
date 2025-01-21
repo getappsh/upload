@@ -2,7 +2,7 @@ import { RegulationEntity, RegulationStatusEntity, ReleaseEntity } from "@app/co
 import { RegulationStatusDto, RegulationStatusParams, ReleaseParams, SetRegulationCompliancyDto, SetRegulationStatusDto } from "@app/common/dto/upload";
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { JsonContains, Repository } from "typeorm";
 import { RegulationEnforcementService } from "./regulation-enforcement.service";
 
 
@@ -35,13 +35,25 @@ export class RegulationStatusService {
     return {regulation: regulationEntity, release: releaseEntity};
   }
   
+  private createRegulationSnapshot(regulation: RegulationEntity): Record<string, any> {
+    return {
+      name: regulation.displayName ?? regulation.name,
+      description: regulation.description,
+      config: regulation.config,
+      typeId: regulation.type.id,
+    }
+  }
 
   async setRegulationStatus(dto: SetRegulationStatusDto): Promise<RegulationStatusDto> {
     this.logger.log('Set regulation status');
 
     const {regulation, release} = await this.getRegulationAndRelease(dto);
-
     const isCompliant = await this.enforcementService.enforce(regulation, dto.value);
+    
+    let regulationSnapshot = null;
+    if (isCompliant) {
+      regulationSnapshot = this.createRegulationSnapshot(regulation);
+    }
 
     await this.regulationStatusRepo
       .createQueryBuilder()
@@ -51,10 +63,11 @@ export class RegulationStatusService {
         reportDetails: dto.reportDetails,
         isCompliant: isCompliant,
         version: release,
-        regulation: regulation
+        regulation: regulation,
+        regulationSnapshot: regulationSnapshot
       })
       .orUpdate(
-        ['value', 'report_details', 'is_compliant'],
+        ['value', 'report_details', 'is_compliant', 'regulation_snapshot'],
         "regulation_version_unique_constraint",
        )
       .execute();
@@ -66,16 +79,22 @@ export class RegulationStatusService {
   async setComplianceStatus(dto: SetRegulationCompliancyDto): Promise<RegulationStatusDto> {
     this.logger.log('Set compliance status');
     const {regulation, release} = await this.getRegulationAndRelease(dto);
+
+    let regulationSnapshot = null;
+    if (dto.isCompliant) {
+      regulationSnapshot = this.createRegulationSnapshot(regulation);
+    }
     await this.regulationStatusRepo
       .createQueryBuilder()
       .insert()
       .values({
         isCompliant: dto.isCompliant,
         version: release,
-        regulation: regulation
+        regulation: regulation,
+        regulationSnapshot: regulationSnapshot
       })
       .orUpdate(
-        ['is_compliant'],
+        ['is_compliant', 'regulation_snapshot'],
         "regulation_version_unique_constraint",
       )
       .execute();
@@ -89,13 +108,16 @@ export class RegulationStatusService {
     const regulationStatus = await this.regulationStatusRepo.findOne({ 
       select: {version: {version: true}, regulation: {name: true, project: {id: true}}},
       relations: {version: true, regulation: {project: true}},
-      where: { 
-        version: {version: params.version},
-        regulation: { 
-          name: params.regulation, 
-          project: {id: params.projectId} 
-        }, 
-      },
+      where: [
+        {
+          version: {version: params.version, project: {id: params.projectId}},
+          regulationSnapshot: JsonContains({name: params.regulation})
+        },
+        {
+          version: {version: params.version, project: {id: params.projectId}},
+          regulation: {name: params.regulation}
+        }
+      ]
     });
 
     if (!regulationStatus) {
@@ -111,9 +133,7 @@ export class RegulationStatusService {
       select: {version: {version: true}, regulation: {name: true, project: {id: true}}},
       relations: {version: true, regulation: {project: true}},
       where: { 
-        version: {version: params.version},
-        regulation: { 
-          project: {id: params.projectId} }, 
+        version: {version: params.version, project: {id: params.projectId}},
         },
       order: {regulation: {order: 'ASC'}} 
       });
@@ -127,13 +147,16 @@ export class RegulationStatusService {
     this.logger.log(`Delete regulation status with regulationId ${params.regulation} for Project ID ${params.projectId} and versionId ${params.version}`);
 
     const status = await this.regulationStatusRepo.findOne({ 
-      where: { 
-        version: {version: params.version},
-        regulation: { 
-          name: params.regulation, 
-          project: {id: params.projectId} 
-        }, 
-      },
+      where: [
+        {
+          version: {version: params.version, project: {id: params.projectId}},
+          regulationSnapshot: JsonContains({name: params.regulation})
+        },
+        {
+          version: {version: params.version, project: {id: params.projectId}},
+          regulation: {name: params.regulation}
+        }
+      ]
     });
 
     // TODO: Delete file if needed?
