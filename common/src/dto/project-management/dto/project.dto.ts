@@ -1,10 +1,12 @@
-import { ApiProperty } from "@nestjs/swagger";
+import { ApiProperty, PartialType } from "@nestjs/swagger";
 import { MemberResDto } from "./member-project-res.dto";
-import { ProjectEntity, RoleInProject } from "@app/common/database/entities";
+import { MemberProjectEntity, ProjectEntity, RoleInProject } from "@app/common/database/entities";
 import { IsString, IsNotEmpty, IsOptional } from "class-validator";
 import { IsValidStringFor } from "@app/common/validators";
 import { Pattern } from "@app/common/validators/regex.validator";
 import { ProjectTokenDto } from "./project-token.dto";
+import { ProjectMemberPreferencesDto } from "./project-member.dto";
+
 
 export class BaseProjectDto {
 
@@ -14,25 +16,40 @@ export class BaseProjectDto {
   @ApiProperty({ description: 'Name of the project'})
   name: string;
 
+  @ApiProperty({ required: false })
+  description?: string;
+
   @ApiProperty({ required: false,  description: 'Status of the project (active, completed, on-hold)'})
   status?: string; // Needs to be an enum
 
   fromProjectEntity(project: ProjectEntity) {
     this.id = project.id;
     this.name = project.name;
+    this.description = project.description;
     // this.status = project.status;
     return this;
   }
   
 }
 
+export class ProjectMemberContextDto {
+  @ApiProperty({ enum: RoleInProject })
+  role?: RoleInProject
+
+  @ApiProperty()
+  preferences: ProjectMemberPreferencesDto
+
+  fromMemberProjectEntity(memberProject: MemberProjectEntity) {
+    this.role = memberProject.role;
+    this.preferences = ProjectMemberPreferencesDto.fromMemberEntity(memberProject);
+    return this;
+  }
+}
+
 export class ProjectDto extends BaseProjectDto {
 
   @ApiProperty({ description: 'Owner of the project' })
   owner: string;
-
-  @ApiProperty({ required: false })
-  description?: string;
 
   @ApiProperty({ required: false, description: "Number of members in the project" })
   numMembers?: number
@@ -49,14 +66,16 @@ export class ProjectDto extends BaseProjectDto {
   @ApiProperty({required: false, description: 'Upcoming release stage' })
   upcomingReleaseStage?: string;
 
+  @ApiProperty({ required: false, type: ProjectMemberContextDto, description: 'Current member context' })
+  memberContext?: ProjectMemberContextDto
+
   fromProjectEntity(project: ProjectEntity) {
     super.fromProjectEntity(project);
 
-    this.description = project.description;
     this.versions = project.releases?.length;
     this.numMembers = project.memberProject.length;
 
-    const ownerEntity =project.memberProject?.find(mp => mp.role === RoleInProject.PROJECT_OWNER);
+    const ownerEntity = project.memberProject?.find(mp => mp.role === RoleInProject.PROJECT_OWNER);
     if(ownerEntity){
       this.owner = new MemberResDto().fromMemberProjectEntity(ownerEntity)?.getName();
     }
@@ -108,4 +127,9 @@ export class CreateProjectDto {
   description: string;
 
   username: string;
+}
+
+export class EditProjectDto extends PartialType(CreateProjectDto) {
+  projectIdentifier: string | number;
+  projectId: number;
 }
