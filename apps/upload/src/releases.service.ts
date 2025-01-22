@@ -2,11 +2,12 @@ import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum,
 import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams } from "@app/common/dto/upload";
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Not, Repository } from "typeorm";
+import { In, Not, Repository } from "typeorm";
 import { FileUploadService } from "./file-upload.service";
 import { UpsertOptions } from "typeorm/repository/UpsertOptions";
 import * as semver from 'semver';
 import { RegulationStatusService } from "./regulation-status.service";
+import { RegulationChangedEvent, RegulationChangedEventType, RegulationParams } from "@app/common/dto/project-management";
 
 
 @Injectable()
@@ -200,10 +201,55 @@ export class ReleaseService {
     }
   }
 
+  async onProjectRegulationChanged(event: RegulationChangedEvent) {
+    switch (event.type) {
+      case RegulationChangedEventType.CREATED:
+        await this.onProjectRegulationCreated(event);
+        break;
+      case RegulationChangedEventType.UPDATED:
+        break;
+      case RegulationChangedEventType.DELETED:
+        await this.onProjectRegulationDeleted(event);
+        break;
+      
+    }
+  }
+  async onProjectRegulationDeleted(event: RegulationChangedEvent){
+    this.logger.debug(`onProjectRegulationDeleted: Project: ${event.projectId}, Regulation: ${event.regulation}`);
+    const releases = await this.releaseRepo.find({
+      where: {
+        project: {id: event.projectId},
+        status: In([ReleaseStatusEnum.DRAFT, ReleaseStatusEnum.IN_REVIEW])
+      }
+    })
+
+    for (const release of releases) {
+      this.logger.debug(`Delete if exist regulation status for Project: ${event.projectId}, Regulation: ${event.regulation}, Version: ${release.version}`);
+      await this.regulationService.deleteVersionRegulationStatus({version: release.version, projectIdentifier: event.projectId, ...event}).catch(() => {});
+      await this.regulationService.deleteOrphanRegulationStatuses({version: release.version, projectId: event.projectId, projectIdentifier: event.projectId}).catch(() => {});
+      await this.refreshReleaseState({version: release.version,  projectIdentifier: event.projectId, ...event}); 
+    }
+  }
+
+  async onProjectRegulationCreated(event: RegulationChangedEvent) {
+    this.logger.debug(`onProjectRegulationCreated: Project: ${event.projectId}, Regulation: ${event.regulation}`);
+    const releases = await this.releaseRepo.find({
+      where: {
+        project: {id: event.projectId},
+        status: In([ReleaseStatusEnum.DRAFT, ReleaseStatusEnum.IN_REVIEW])
+      }
+    })
+
+    for (const release of releases) {
+      await this.refreshReleaseState({version: release.version,  projectIdentifier: event.projectId, ...event}); 
+    }
+  }
+
+
   async refreshReleaseState(params: ReleaseParams): Promise<void> {
     this.logger.log(`Refreshing release state for project: ${params.projectId}, version: ${params.version}`);
 
-    const release = await this.getRelease(params).catch(null);
+    const release = await this.getRelease(params).catch(() => {});
     if (!release) return;
     
     const regulations = await this.regulationRepo.find({where: {project: {id: params.projectId}}});
@@ -214,7 +260,7 @@ export class ReleaseService {
     for (const regulation of regulations) {
       const status = statuses.find((s) => s.regulation === regulation.name);
       if (!status || !status.isCompliant) {
-        this.logger.warn(`Regulation ${regulation.name} for project: ${params.projectId}, version: ${params.version} is not compliant`);
+        this.logger.verbose(`Regulation ${regulation.name} for project: ${params.projectId}, version: ${params.version} is not compliant`);
         regulationsCompliant = false;
       }else {
         numCompliant++;

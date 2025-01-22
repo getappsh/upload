@@ -2,7 +2,7 @@ import { RegulationEntity, RegulationStatusEntity, ReleaseEntity } from "@app/co
 import { RegulationStatusDto, RegulationStatusParams, ReleaseParams, SetRegulationCompliancyDto, SetRegulationStatusDto } from "@app/common/dto/upload";
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { JsonContains, Repository } from "typeorm";
+import { IsNull, JsonContains, Repository } from "typeorm";
 import { RegulationEnforcementService } from "./regulation-enforcement.service";
 
 
@@ -142,9 +142,8 @@ export class RegulationStatusService {
     return regulationStatuses.map(rs => new RegulationStatusDto().fromRegulationStatusEntity(rs));
   }
 
-
   async deleteVersionRegulationStatus(params: RegulationStatusParams) {
-    this.logger.log(`Delete regulation status with regulationId ${params.regulation} for Project ID ${params.projectId} and versionId ${params.version}`);
+    this.logger.log(`Delete regulation status with regulation ${params.regulation} for Project ID ${params.projectId} and versionId ${params.version}`);
 
     const status = await this.regulationStatusRepo.findOne({ 
       where: [
@@ -169,8 +168,21 @@ export class RegulationStatusService {
     }
     
     if (!status || res?.affected == 0) {
-      throw new NotFoundException(`Regulation status with regulationId ${params.regulation} for Project ID ${params.projectId} and versionId ${params.version} not found`);
+      throw new NotFoundException(`Regulation status with regulation ${params.regulation} for Project ID ${params.projectId} and versionId ${params.version} not found`);
     }
     return "Regulation status deleted";
+  }
+
+  async deleteOrphanRegulationStatuses(params: ReleaseParams) {
+    this.logger.debug(`Delete orphan regulation status with Project ID ${params.projectId} and versionId ${params.version}`);
+    const statues = await this.regulationStatusRepo.find({
+      where: {
+        version: {version: params.version, project: {id: params.projectId}},
+      regulation: IsNull(),
+      regulationSnapshot: IsNull()
+      }
+    })
+    await this.regulationStatusRepo.remove(statues);
+    this.logger.debug(`Orphan regulation status deleted`);
   }
 }

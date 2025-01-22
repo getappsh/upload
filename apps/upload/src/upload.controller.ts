@@ -1,7 +1,7 @@
-import { UploadTopics } from '@app/common/microservice-client/topics';
+import { UploadTopics, UploadTopicsEmit } from '@app/common/microservice-client/topics';
 import { RoleInProject, UploadVersionEntity } from '@app/common/database/entities';
 import { Controller, Logger } from '@nestjs/common';
-import { MessagePattern, RpcException } from '@nestjs/microservices';
+import { EventPattern, MessagePattern, RpcException } from '@nestjs/microservices';
 import { UploadService } from './upload.service';
 import { CreateFileUploadUrlDto, ReleaseArtifactParams, ReleaseParams, SetReleaseArtifactDto, SetReleaseDto, UpdateUploadStatusDto } from '@app/common/dto/upload';
 import { RpcPayload } from '@app/common/microservice-client';
@@ -11,6 +11,7 @@ import { ReleaseService } from './releases.service';
 import { RegulationStatusService } from './regulation-status.service';
 import { RegulationStatusParams, SetRegulationCompliancyDto, SetRegulationStatusDto } from '@app/common/dto/upload';
 import { ValidateProjectAnyAccess } from '@app/common/utils/project-access';
+import { RegulationChangedEvent } from '@app/common/dto/project-management';
 
 
 @Controller()
@@ -108,7 +109,7 @@ export class UploadController {
   @ValidateProjectAnyAccess(RoleInProject.PROJECT_OWNER)
   @MessagePattern(UploadTopics.SET_VERSION_REGULATION_COMPLIANCE)
   async setComplianceStatus(@RpcPayload() dto: SetRegulationCompliancyDto) {
-    const res =  await this.regulationService.setComplianceStatus(dto)
+    const res = await this.regulationService.setComplianceStatus(dto)
     this.releasesService.refreshReleaseState(dto);
     return res
   }
@@ -134,6 +135,10 @@ export class UploadController {
     return res
   }
 
+  @EventPattern(UploadTopicsEmit.PROJECT_REGULATION_CHANGED)
+  async onProjectRegulationChanged(@RpcPayload() event: RegulationChangedEvent) {
+    await this.releasesService.onProjectRegulationChanged(event);
+  }
 
   private readImageVersion(){
     let version = 'unknown'
