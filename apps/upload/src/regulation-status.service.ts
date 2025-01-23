@@ -182,6 +182,8 @@ export class RegulationStatusService {
       regulationSnapshot: IsNull()
       }
     })
+    // TODO: Delete file if needed?
+
     await this.regulationStatusRepo.remove(statues);
     this.logger.debug(`Orphan regulation status deleted`);
   }

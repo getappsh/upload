@@ -1,13 +1,16 @@
 import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum } from "@app/common/database/entities";
 import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams } from "@app/common/dto/upload";
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Not, Repository } from "typeorm";
 import { FileUploadService } from "./file-upload.service";
 import { UpsertOptions } from "typeorm/repository/UpsertOptions";
 import * as semver from 'semver';
 import { RegulationStatusService } from "./regulation-status.service";
-import { RegulationChangedEvent, RegulationChangedEventType, RegulationParams } from "@app/common/dto/project-management";
+import { MinimalReleaseDto, ProjectReleasesChangedEvent, RegulationChangedEvent, RegulationChangedEventType, RegulationParams } from "@app/common/dto/project-management";
+import { MicroserviceClient, MicroserviceName } from "@app/common/microservice-client";
+import { ProjectManagementTopicsEmit } from "@app/common/microservice-client/topics";
+import { lastValueFrom } from "rxjs";
 
 
 @Injectable()
@@ -15,6 +18,7 @@ export class ReleaseService {
   private readonly logger = new Logger(ReleaseService.name);
 
   constructor(
+    @Inject(MicroserviceName.PROJECT_MANAGEMENT_SERVICE) private readonly projectClient: MicroserviceClient,
     @InjectRepository(ReleaseEntity) private readonly releaseRepo: Repository<ReleaseEntity>,
     @InjectRepository(ReleaseArtifactEntity) private readonly artifactRepo: Repository<ReleaseArtifactEntity>,
     @InjectRepository(RegulationEntity) private readonly regulationRepo: Repository<RegulationEntity>,
@@ -104,6 +108,8 @@ export class ReleaseService {
     }
 
     await this.releaseRepo.delete({project: {id: params.projectId}, version: params.version});
+    
+    this.sendProjectReleasesChangedEvent(params.projectId);
 
     return "Release deleted"
 
@@ -214,7 +220,7 @@ export class ReleaseService {
       
     }
   }
-  async onProjectRegulationDeleted(event: RegulationChangedEvent){
+  private async onProjectRegulationDeleted(event: RegulationChangedEvent){
     this.logger.debug(`onProjectRegulationDeleted: Project: ${event.projectId}, Regulation: ${event.regulation}`);
     const releases = await this.releaseRepo.find({
       where: {
@@ -231,7 +237,7 @@ export class ReleaseService {
     }
   }
 
-  async onProjectRegulationCreated(event: RegulationChangedEvent) {
+  private async onProjectRegulationCreated(event: RegulationChangedEvent) {
     this.logger.debug(`onProjectRegulationCreated: Project: ${event.projectId}, Regulation: ${event.regulation}`);
     const releases = await this.releaseRepo.find({
       where: {
@@ -245,6 +251,32 @@ export class ReleaseService {
     }
   }
 
+  private async getLatestAndUpcomingReleases(projectId: number): Promise<ProjectReleasesChangedEvent> {
+    this.logger.debug(`Get latest and upcoming releases for project: ${projectId}`);
+    
+    const changedEvent = new ProjectReleasesChangedEvent()
+    changedEvent.projectId = projectId;
+
+    const releases = await this.getReleases(projectId);
+
+    for (const release of releases) {
+      if((release.status === ReleaseStatusEnum.DRAFT || release.status === ReleaseStatusEnum.IN_REVIEW) && !changedEvent.upcomingRelease){
+        changedEvent.upcomingRelease = MinimalReleaseDto.fromReleaseDto(release);
+        
+      }else if (release.status === ReleaseStatusEnum.RELEASED){
+        changedEvent.latestRelease = MinimalReleaseDto.fromReleaseDto(release);
+        break;
+      }
+    }
+    return changedEvent
+  }
+
+  private async sendProjectReleasesChangedEvent(projectId: number) {
+    this.logger.log(`Sending project releases changed event for project: ${projectId}`);
+    const latestAndPending = await this.getLatestAndUpcomingReleases(projectId);
+    lastValueFrom(this.projectClient.emit(ProjectManagementTopicsEmit.PROJECT_RELEASES_CHANGED, latestAndPending))
+      .catch(err => this.logger.error(`Failed to send project releases changed event for project: ${projectId}, error: ${err}`));
+  }
 
   async refreshReleaseState(params: ReleaseParams): Promise<void> {
     this.logger.log(`Refreshing release state for project: ${params.projectId}, version: ${params.version}`);
@@ -297,7 +329,6 @@ export class ReleaseService {
       await this.releaseRepo.update({version: params.version, project: {id: params.projectId}}, {status: ReleaseStatusEnum.IN_REVIEW});
     }
 
-
-
+    this.sendProjectReleasesChangedEvent(params.projectId);
   }
 }

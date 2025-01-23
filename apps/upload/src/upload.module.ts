@@ -42,7 +42,11 @@ import { PROJECT_ACCESS_SERVICE } from '@app/common/utils/project-access';
        MemberProjectEntity,
        RegulationStatusEntity,
        RegulationEntity]),
-    SafeCronModule
+    SafeCronModule,
+    MicroserviceModule.register({
+      name: MicroserviceName.PROJECT_MANAGEMENT_SERVICE,
+      type: MicroserviceType.PROJECT_MANAGEMENT,
+    }),
   ],
   controllers: [UploadController],
   providers: [
