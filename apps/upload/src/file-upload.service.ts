@@ -187,10 +187,14 @@ export class FileUploadService{
     } while (files.length === batchSize);
   }
 
-  @TimeoutRepeatTask({ name: "listen-to-minio-events", initialTimeout: 1000, repeatTimeout: 10000 }) // Start after 1 second, repeat when finished every 10 seconds
+  @TimeoutRepeatTask({ name: "listen-to-minio-events", initialTimeout: 1000, repeatTimeout: 60000 }) // Start after 1 second, repeat when finished every 60 seconds
   async listenTomMinioEvents() {
+    if (process.env.MINIO_EVENTS_SKIP === 'true') {
+      this.logger.verbose('Minio events listener skipped');
+      return;
+    }
     this.syncDB();
-    return this.listenToObjectsEvents();
+    return this.listenToObjectsEvents().catch(() => {});
   }
   
 }

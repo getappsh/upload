@@ -45,6 +45,7 @@ function TimeoutRepeatTaskInjector(options: TimeoutRepeatTaskOptions) {
           const interval = setInterval(() => this.safeCron.updateJobStartTime(options.name), 1000 * 60 * 4); // 4 minutes
           try {
             await originalMethod.apply(this, args);
+          }catch (error) {
           } finally {
             clearInterval(interval);
             await locker.releaseLock(options.name);
