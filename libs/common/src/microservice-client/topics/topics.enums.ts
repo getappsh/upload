@@ -76,6 +76,7 @@ export const ProjectManagementTopics = {
     GET_PROJECTS: `getapp-project-management.get-projects${region}`,
     SEARCH_PROJECTS: `getapp-project-management.search-projects${region}`,
     GET_PROJECT_BY_IDENTIFIER: `getapp-project-management.get-project-by-identifier${region}`,
+    GET_PLATFORMS: `getapp-project-management.get-platforms${region}`,
 
     ADD_PROJECT_NEW_MEMBER: `getapp-project-management.add-project-new-member${region}`,
     CONFIRM_PROJECT_MEMBER: `getapp-project-management.confirm-project-member${region}`,
@@ -95,6 +96,7 @@ export const ProjectManagementTopics = {
     GET_PROJECT_REGULATION_BY_NAME: `getapp-project-management.get-project-regulation-by-name${region}`,
     CREATE_PROJECT_REGULATION: `getapp-project-management.create-project-regulation${region}`,
     UPDATE_PROJECT_REGULATION: `getapp-project-management.update-project-regulation${region}`,
+    UPDATE_PROJECT_REGULATIONS: `getapp-project-management.update-project-regulations${region}`,
     DELETE_PROJECT_REGULATION: `getapp-project-management.delete-project-regulation${region}`,
 
     // Tokens
@@ -103,6 +105,13 @@ export const ProjectManagementTopics = {
     CREATE_PROJECT_TOKEN: `getapp-project-management.create-project-token${region}`,
     UPDATE_PROJECT_TOKEN: `getapp-project-management.update-project-token${region}`,
     DELETE_PROJECT_TOKEN: `getapp-project-management.delete-project-token${region}`,
+
+    // Docs
+    GET_PROJECT_DOCS: `getapp-project-management.get-project-docs${region}`,
+    GET_PROJECT_DOC_BY_ID: `getapp-project-management.get-project-doc-by-id${region}`,
+    CREATE_PROJECT_DOC: `getapp-project-management.create-project-doc${region}`,
+    UPDATE_PROJECT_DOC: `getapp-project-management.update-project-doc${region}`,
+    DELETE_PROJECT_DOC: `getapp-project-management.delete-project-doc${region}`,
 
     CHECK_HEALTH: `getapp-project-management.check-health${region}`
 } as const
