@@ -61,7 +61,7 @@ import { PROJECT_ACCESS_SERVICE } from '@app/common/utils/project-access';
     JUnitParserService,
     {
       provide: PROJECT_ACCESS_SERVICE,
-      useClass: UploadService
+      useExisting: UploadService
     }
   ],
 })

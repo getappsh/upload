@@ -1,6 +1,6 @@
 import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum } from "@app/common/database/entities";
-import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams } from "@app/common/dto/upload";
-import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto } from "@app/common/dto/upload";
+import { Inject, Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Not, Repository } from "typeorm";
 import { FileUploadService } from "./file-upload.service";
@@ -14,7 +14,7 @@ import { lastValueFrom } from "rxjs";
 
 
 @Injectable()
-export class ReleaseService {
+export class ReleaseService  {
   private readonly logger = new Logger(ReleaseService.name);
 
   constructor(
@@ -33,25 +33,52 @@ export class ReleaseService {
   async setRelease(dto: SetReleaseDto): Promise<ReleaseDto>{
     this.logger.log(`Setting release for project: ${dto.projectId}, version: ${dto.version}`);
 
-    const releaseEntity = this.releaseRepo.create();
+    const releaseEntity = await this.releaseRepo.findOneBy({project: {id: dto.projectId}, version: dto.version}) ?? this.releaseRepo.create();
+    
     releaseEntity.project = { id: dto.projectId } as unknown as ProjectEntity;
     releaseEntity.version = dto.version;
     releaseEntity.name = dto?.name;
     releaseEntity.releaseNotes = dto?.releaseNotes;;
     releaseEntity.metadata = dto?.metadata;
-    releaseEntity.status = dto?.isDraft === true ? ReleaseStatusEnum.DRAFT : ReleaseStatusEnum.IN_REVIEW;
+    if (dto?.isDraft === true){
+      releaseEntity.status = ReleaseStatusEnum.DRAFT
+    }else if(dto?.isDraft === false){
+      releaseEntity.status = ReleaseStatusEnum.IN_REVIEW
+    }
     releaseEntity.requiredRegulationsCount = await this.regulationRepo.count({where: {project: {id: dto.projectId}}})
 
-    this.logger.debug(`Saving release: ${JSON.stringify(releaseEntity)}`);
-    await this.releaseRepo.upsert(releaseEntity, ['project', 'version']);
+    if (dto.dependencies){
+      releaseEntity.dependencies = await this.getAndValidateDependenciesForRelease(dto, dto.dependencies); 
+    }
 
+    this.logger.debug(`Saving release: ${JSON.stringify(releaseEntity)}`);
+    await this.releaseRepo.save(releaseEntity)
+    
     await this.refreshReleaseState(dto);
 
     return this.getRelease(dto);
   }
 
-  
-  async getRelease(params: ReleaseParams): Promise<ReleaseDto>{
+  private async getAndValidateDependenciesForRelease(release: {projectId: number, version: string}, dependencies: string[]): Promise<ReleaseEntity[]> {
+    const dependencyEntities = await this.releaseRepo.find({
+      where: {catalogId: In(dependencies)},
+      relations: ['project'],
+      select: {catalogId: true, version: true, project: {id: true}},
+    });
+
+    if (dependencies.length > dependencyEntities.length) {
+      throw new NotFoundException('Some dependencies do not exist');
+    }
+
+    const conflictedDependencies = dependencyEntities.filter(dep => dep.project.id === release.projectId).map(dep => dep.version);
+
+    if (conflictedDependencies.length > 0) {
+      throw new ConflictException(`Release ${release.version} cannot depend on a release (${conflictedDependencies.join(', ')}) from the same project.`);
+    }
+    return dependencyEntities
+  }
+
+  async getRelease(params: ReleaseParams): Promise<DetailedReleaseDto>{
     this.logger.log(`Getting release for project: ${params.projectId}, version: ${params.version}`);
 
     return this.releaseRepo.findOne({
@@ -60,14 +87,14 @@ export class ReleaseService {
         version: params.version
       },
       relations: {
-        artifacts: {fileUpload: true}
-        
+        artifacts: {fileUpload: true},
+        dependencies: true
       }
     }).then((release) => {
       if (!release){
         throw new NotFoundException(`Release not found for project: ${params.projectId}, version: ${params.version}`);
       }
-      return ReleaseDto.fromEntity(release);
+      return DetailedReleaseDto.fromEntity(release);
     })
   }
 
