@@ -1,11 +1,10 @@
 import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum } from "@app/common/database/entities";
 import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto } from "@app/common/dto/upload";
-import { Inject, Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException, ConflictException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Not, Repository } from "typeorm";
 import { FileUploadService } from "./file-upload.service";
 import { UpsertOptions } from "typeorm/repository/UpsertOptions";
-import * as semver from 'semver';
 import { RegulationStatusService } from "./regulation-status.service";
 import { MinimalReleaseDto, ProjectReleasesChangedEvent, RegulationChangedEvent, RegulationChangedEventType, RegulationParams } from "@app/common/dto/project-management";
 import { MicroserviceClient, MicroserviceName } from "@app/common/microservice-client";
@@ -109,19 +108,11 @@ export class ReleaseService  {
     const releases = await this.releaseRepo.find({
       where: {
         project: {id: projectId}
-      }
+      },
+      order: {sortOrder: 'DESC'}
     })
     
-    return releases
-    .sort((a, b) => {
-      try {
-        return semver.rcompare(a.version, b.version)
-      } catch (error) {
-        this.logger.warn(`Error comparing versions: ${a.version}, ${b.version}`);
-        return b.createdAt.getTime() - a.createdAt.getTime();
-      }
-    })
-    .map((release) => ReleaseDto.fromEntity(release));
+    return releases.map((release) => ReleaseDto.fromEntity(release));
   }
   
 
