@@ -51,6 +51,9 @@ export class ReleaseDto {
   @ApiProperty()
   version: string;
 
+  @ApiProperty()
+  projectName: string;
+  
   @ApiProperty({ required: false })
   projectId?: number;
 
@@ -83,6 +86,7 @@ export class ReleaseDto {
     dto.version = release.version;
     dto.id = release.catalogId;
     dto.projectId = release?.project?.id;
+    dto.projectName = release?.project?.name;
     dto.name = release.name;
     dto.releaseNotes = release.releaseNotes;
     dto.metadata = release.metadata;
