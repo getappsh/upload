@@ -89,16 +89,15 @@ export class ReleaseService {
   }
 
   private async getReleaseEntity(params: { projectId: number, version: string }): Promise<ReleaseEntity> {
-    return this.releaseRepo.findOne({
+    return await this.releaseRepo.findOne({
       select: { project: { id: true, name: true }, dependentReleases: { version: true, project: { id: true, name: true } } },
       where: {
         project: { id: params.projectId },
         version: params.version
       },
       relations: {
-        project: true,
         artifacts: { fileUpload: true },
-        dependencies: true,
+        dependencies: { project: true },
         dependentReleases: { project: true }
       }
     })
