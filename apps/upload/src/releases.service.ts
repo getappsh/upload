@@ -1,5 +1,5 @@
 import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum } from "@app/common/database/entities";
-import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto } from "@app/common/dto/upload";
+import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto, ReleaseEventType, ReleaseEventEnum, ReleaseChangedEventDto } from "@app/common/dto/upload";
 import { Inject, Injectable, Logger, NotFoundException, ConflictException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Not, Repository } from "typeorm";
@@ -8,7 +8,7 @@ import { UpsertOptions } from "typeorm/repository/UpsertOptions";
 import { RegulationStatusService } from "./regulation-status.service";
 import { MinimalReleaseDto, ProjectReleasesChangedEvent, RegulationChangedEvent, RegulationChangedEventType, RegulationParams } from "@app/common/dto/project-management";
 import { MicroserviceClient, MicroserviceName } from "@app/common/microservice-client";
-import { ProjectManagementTopicsEmit } from "@app/common/microservice-client/topics";
+import { OfferingTopicsEmit, ProjectManagementTopicsEmit } from "@app/common/microservice-client/topics";
 import { lastValueFrom } from "rxjs";
 
 
@@ -21,6 +21,7 @@ export class ReleaseService {
     @InjectRepository(ReleaseEntity) private readonly releaseRepo: Repository<ReleaseEntity>,
     @InjectRepository(ReleaseArtifactEntity) private readonly artifactRepo: Repository<ReleaseArtifactEntity>,
     @InjectRepository(RegulationEntity) private readonly regulationRepo: Repository<RegulationEntity>,
+    @Inject(MicroserviceName.OFFERING_SERVICE) private readonly offeringClient: MicroserviceClient,
     private readonly fileUploadService: FileUploadService,
     private readonly regulationService: RegulationStatusService,
   ) {
@@ -134,7 +135,7 @@ export class ReleaseService {
 
     await this.releaseRepo.delete({ project: { id: params.projectId }, version: params.version });
 
-    this.sendProjectReleasesChangedEvent(params.projectId);
+    this.sendProjectReleasesChangedEvent(params.projectId, release.id, ReleaseEventEnum.DELETED);
 
     return "Release deleted"
 
@@ -296,11 +297,17 @@ export class ReleaseService {
     return changedEvent
   }
 
-  private async sendProjectReleasesChangedEvent(projectId: number) {
+  private async sendProjectReleasesChangedEvent(projectId: number, catalogId: string, event?: ReleaseEventType) {
     this.logger.log(`Sending project releases changed event for project: ${projectId}`);
     const latestAndPending = await this.getLatestAndUpcomingReleases(projectId);
     lastValueFrom(this.projectClient.emit(ProjectManagementTopicsEmit.PROJECT_RELEASES_CHANGED, latestAndPending))
       .catch(err => this.logger.error(`Failed to send project releases changed event for project: ${projectId}, error: ${err}`));
+
+    if (event) {
+      const eventDto = new ReleaseChangedEventDto(catalogId, event);
+      lastValueFrom(this.offeringClient.emit(OfferingTopicsEmit.RELEASE_CHANGED_EVENT, eventDto))
+        .catch(err => this.logger.error(`Failed to send release event for project: ${projectId}, error: ${err}`));
+    }
   }
 
   // TODO write unit-test
@@ -331,12 +338,14 @@ export class ReleaseService {
       version: params.version,
       project: { id: params.projectId },
       status: Not(ReleaseStatusEnum.RELEASED)
-    },
+      },
       {
         requiredRegulationsCount: regulations.length,
         compliantRegulationsCount: numCompliant
       });
 
+    
+    let changeStatus = null;
 
     const dependenciesReleased = release?.dependencies?.every(dep => dep.status === ReleaseStatusEnum.RELEASED) ?? true;
 
@@ -347,8 +356,9 @@ export class ReleaseService {
         release?.dependentReleases?.forEach(dep => {
           this.logger.verbose(`Refreshing dependent release state, project: ${dep.project.id}, version: ${dep.version}`);
           this.refreshReleaseState({ version: dep.version, projectIdentifier: dep.project.id, projectId: dep.project.id })
-        }
-        );
+        });
+
+        changeStatus = ReleaseStatusEnum.IN_REVIEW
       }
 
     } else if (regulationsCompliant && dependenciesReleased && release.status === ReleaseStatusEnum.IN_REVIEW) {
@@ -368,12 +378,13 @@ export class ReleaseService {
           release?.dependentReleases?.forEach(dep => {
             this.logger.verbose(`Refreshing dependent release state, project: ${dep.project.id}, version: ${dep.version}`);
             this.refreshReleaseState({ version: dep.version, projectIdentifier: dep.project.id, projectId: dep.project.id })
-          }
-          );
+          });
+
+          changeStatus = ReleaseStatusEnum.RELEASED
         }
       }
     }
 
-    this.sendProjectReleasesChangedEvent(params.projectId);
+    this.sendProjectReleasesChangedEvent(params.projectId, release.catalogId, changeStatus);
   }
 }
