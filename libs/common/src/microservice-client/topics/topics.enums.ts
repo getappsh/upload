@@ -45,9 +45,8 @@ export const DeliveryTopicsEmit = {
 }
 
 export const OfferingTopics = {
-    CHECK_UPDATES: `getapp-offering.check-updates${region}`,
+    // Deprecated
     DEVICE_COMPONENT_OFFERING: `getapp-offering.device-components${region}`,
-    DEVICE_COMPONENT_OFFERING_V2: `getapp-offering.device-components-v2${region}`,
     DEVICE_MAP_OFFERING: `getapp-offering.device-map${region}`,
     GET_OFFER_OF_COMP: `getapp-offering.get-offering-of-comp${region}`,
     CHECK_HEALTH: `getapp-offering.check-health${region}`
@@ -177,7 +176,6 @@ export const DeviceTopicsEmit = {
     MAP_UPDATES_JOB_START: `getapp-device.map.job.updates.start${region}`,
     UPDATE_TLS_STATUS: `getapp-device.update.tls.status${region}`,
     IM_PUSH_DISCOVERY: `getapp-device.im.push.discovery${region}`,
-    COMPONENT_EVENT: `getapp-device.component.event`,
     RELEASE_CHANGED_EVENT: `getapp-device.release-changed-event${region}`,
 } as const
 
