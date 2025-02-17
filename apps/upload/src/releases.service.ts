@@ -201,10 +201,14 @@ export class ReleaseService {
     }
 
     if (artifact.type == ArtifactTypeEnum.FILE) {
-      await this.fileUploadService.deleteFile(artifact.id)
+      await this.fileUploadService.removeFile(artifact.fileUpload.id);
+      await this.artifactRepo.delete({ id: params.artifactId })
+      this.fileUploadService.deleteItemRow(artifact.fileUpload.id)
+        .catch(err => this.logger.error(`Error deleting file upload row from the db: ${artifact.fileUpload.id}, error: ${err}`));
+    }else {
+      await this.artifactRepo.delete({ id: params.artifactId })
     }
 
-    await this.artifactRepo.delete({ id: params.artifactId })
     return "Release Artifact deleted"
   }
 

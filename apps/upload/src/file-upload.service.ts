@@ -138,7 +138,7 @@ export class FileUploadService{
 
   }
 
-  async deleteFile(id: number) {
+  async removeFile(id: number) {
     this.logger.debug(`Deleting file with id: ${id}`);
 
     const file = await this.uploadRepo.findOneBy({ id });
@@ -151,7 +151,12 @@ export class FileUploadService{
       await this.minioClient.deleteObjects(this.bucketName, file.objectKey);
     }
   
-    this.logger.debug(`Deleting file: ${file.objectKey}`);
+    this.logger.debug(`Remove file: ${file.objectKey}`);
+    await this.uploadRepo.update({ id }, { status: FileUPloadStatusEnum.REMOVED });
+  }
+
+  async deleteItemRow(id: number) {
+    this.logger.debug(`Deleting item row with id: ${id}`);
     await this.uploadRepo.delete({ id });
   }
   
