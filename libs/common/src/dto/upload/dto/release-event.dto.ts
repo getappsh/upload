@@ -14,6 +14,11 @@ export class ReleaseChangedEventDto {
   constructor(
     public catalogId: string, 
     public event: ReleaseEventType) {}
+
+
+  toString(){
+    return JSON.stringify(this)
+  }
 }
 
 // TODO: delete
