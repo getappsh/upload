@@ -47,6 +47,11 @@ export class SetReleaseArtifactResDto {
 
   @ApiProperty({required: false, description: 'Only present for FILE artifact type' })
   uploadUrl: string;
+
+
+  toString(){
+    return JSON.stringify(this)
+  }
 }
 
 
