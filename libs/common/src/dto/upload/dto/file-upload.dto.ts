@@ -34,4 +34,8 @@ export class FileUploadUrlDto{
   url: string
 
   objectKey: string
+
+  toString(){
+    return JSON.stringify(this)
+  }
 }

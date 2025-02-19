@@ -42,6 +42,10 @@ export class SetReleaseDto {
   @IsNotEmpty({each: true})
   dependencies?: string[]
 
+  toString(){
+    return JSON.stringify(this)
+  }
+
 }
 
 export class ReleaseDto {
