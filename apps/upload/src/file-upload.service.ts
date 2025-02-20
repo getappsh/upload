@@ -11,7 +11,7 @@ import {EventEmitter} from 'eventemitter3';
 
 
 @Injectable()
-export class FileUploadService{
+export class FileUploadService {
 
   private static readonly OBJECT_PREFIX = 'upload/';
   private readonly logger = new Logger(FileUploadService.name);
@@ -72,6 +72,17 @@ export class FileUploadService{
   async getFilesByIds(ids: number[]): Promise<FileUploadEntity[]> {
     return this.uploadRepo.findBy({ id: In(ids) }).catch(err => {throw new Error(`File upload not found: ${ids}, error: ${err}`)});
   }
+
+  async areFilesUploaded(ids: number[]): Promise<boolean> {
+    const uploaded = await this.uploadRepo.find({
+      select: ['id'],
+      where: {id: In(ids), status: FileUPloadStatusEnum.UPLOADED},
+    })
+    .catch(err => {throw new Error(`File upload not found: ${ids}, error: ${err}`)});
+    
+    return uploaded.length === ids.length
+  }
+
 
   async onFileCreate(callback: (file: FileUploadEntity) => void) {
     this.emitter.on("fileCreated", callback);

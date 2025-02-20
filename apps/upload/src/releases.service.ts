@@ -351,9 +351,17 @@ export class ReleaseService {
     
     let changeStatus = null;
 
-    const dependenciesReleased = release?.dependencies?.every(dep => dep.status === ReleaseStatusEnum.RELEASED) ?? true;
+    const dependenciesReleased = release?.dependencies?.length > 0 && release?.dependencies?.every(dep => dep.status === ReleaseStatusEnum.RELEASED);
 
-    if ((!regulationsCompliant || !dependenciesReleased) && release.status === ReleaseStatusEnum.RELEASED) {
+    this.logger.log(`Release: ${params.version} for project: ${params.projectId} dependencies released: ${dependenciesReleased} (if exists)`);
+
+    const installationArtifacts = release.artifacts.filter((artifact) => artifact?.isInstallationFile)
+    const fileUploaded = installationArtifacts?.length > 0 && await this.fileUploadService.areFilesUploaded(installationArtifacts.map((artifact) => artifact?.fileUpload?.id));
+
+    this.logger.log(`Release: ${params.version} for project: ${params.projectId} has ${installationArtifacts.length} installation files and they are ready: ${fileUploaded}`);
+    
+   
+    if ((!regulationsCompliant || (!dependenciesReleased && !fileUploaded)) && release.status === ReleaseStatusEnum.RELEASED) {
       this.logger.log(`Setting release status to in_review for project: ${params.projectId}, version: ${params.version}`);
       const res = await this.releaseRepo.update({ version: params.version, project: { id: params.projectId } }, { status: ReleaseStatusEnum.IN_REVIEW });
       if (res.affected > 0) {
@@ -365,28 +373,18 @@ export class ReleaseService {
         changeStatus = ReleaseStatusEnum.IN_REVIEW
       }
 
-    } else if (regulationsCompliant && dependenciesReleased && release.status === ReleaseStatusEnum.IN_REVIEW) {
-      const installationArtifacts = release.artifacts.filter((artifact) => artifact?.isInstallationFile)
-      const files = await this.fileUploadService.getFilesByIds(installationArtifacts.map((artifact) => artifact.fileUpload.id));
+    } else if (regulationsCompliant && dependenciesReleased && release.status === ReleaseStatusEnum.IN_REVIEW && (dependenciesReleased || fileUploaded)) {
+      this.logger.log(`Setting release status to released for project: ${params.projectId}, version: ${params.version}`);
+      const res = await this.releaseRepo.update({ version: params.version, project: { id: params.projectId } }, { status: ReleaseStatusEnum.RELEASED });
+      if (res.affected > 0) {
+        release?.dependentReleases?.forEach(dep => {
+          this.logger.verbose(`Refreshing dependent release state, project: ${dep.project.id}, version: ${dep.version}`);
+          this.refreshReleaseState({ version: dep.version, projectIdentifier: dep.project.id, projectId: dep.project.id })
+        });
 
-      // All installation files are uploaded
-      const fileUploaded = files?.every((file) => file.status === FileUPloadStatusEnum.UPLOADED) ?? true
-
-      // There is at least one installation file or one dependency 
-      const releaseFileOrDependenciesExists = installationArtifacts?.length || release?.dependencies?.length;
-
-      if (releaseFileOrDependenciesExists && fileUploaded) {
-        this.logger.log(`Setting release status to released for project: ${params.projectId}, version: ${params.version}`);
-        const res = await this.releaseRepo.update({ version: params.version, project: { id: params.projectId } }, { status: ReleaseStatusEnum.RELEASED });
-        if (res.affected > 0) {
-          release?.dependentReleases?.forEach(dep => {
-            this.logger.verbose(`Refreshing dependent release state, project: ${dep.project.id}, version: ${dep.version}`);
-            this.refreshReleaseState({ version: dep.version, projectIdentifier: dep.project.id, projectId: dep.project.id })
-          });
-
-          changeStatus = ReleaseStatusEnum.RELEASED
-        }
+        changeStatus = ReleaseStatusEnum.RELEASED
       }
+      
     }
 
     this.sendProjectReleasesChangedEvent(params.projectId, release.catalogId, changeStatus);
