@@ -360,6 +360,7 @@ export class ReleaseService {
 
     this.logger.log(`Release: ${params.version} for project: ${params.projectId} has ${installationArtifacts.length} installation files and they are ready: ${fileUploaded}`);
     
+    this.logger.debug(`Release: ${params.version} for project: ${params.projectId}, status: ${release.status}, regulationsCompliant: ${regulationsCompliant}, dependenciesReleased: ${dependenciesReleased}, fileUploaded: ${fileUploaded}`);
    
     if ((!regulationsCompliant || (!dependenciesReleased && !fileUploaded)) && release.status === ReleaseStatusEnum.RELEASED) {
       this.logger.log(`Setting release status to in_review for project: ${params.projectId}, version: ${params.version}`);
@@ -373,7 +374,7 @@ export class ReleaseService {
         changeStatus = ReleaseStatusEnum.IN_REVIEW
       }
 
-    } else if (regulationsCompliant && dependenciesReleased && release.status === ReleaseStatusEnum.IN_REVIEW && (dependenciesReleased || fileUploaded)) {
+    } else if (regulationsCompliant && release.status === ReleaseStatusEnum.IN_REVIEW && (dependenciesReleased || fileUploaded)) {
       this.logger.log(`Setting release status to released for project: ${params.projectId}, version: ${params.version}`);
       const res = await this.releaseRepo.update({ version: params.version, project: { id: params.projectId } }, { status: ReleaseStatusEnum.RELEASED });
       if (res.affected > 0) {
