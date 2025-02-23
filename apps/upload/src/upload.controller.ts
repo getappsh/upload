@@ -82,8 +82,10 @@ export class UploadController {
 
   @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.DELETE_RELEASE)
-  deleteRelease(@RpcPayload() params: ReleaseParams){
-    return this.releasesService.deleteRelease(params);
+  async deleteRelease(@RpcPayload() params: ReleaseParams){
+    const res = await this.releasesService.deleteRelease(params);
+    this.releasesService.updateLatestForProject(params.projectId);
+    return res
   }
 
   @ValidateProjectAnyAccess()

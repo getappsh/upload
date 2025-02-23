@@ -141,6 +141,29 @@ export class ReleaseService {
 
   }
 
+  async  updateLatestForProject(projectId: number) {
+    await this.releaseRepo
+        .createQueryBuilder()
+        .update(ReleaseEntity)
+        .set({
+            latest: () => `
+                CASE 
+                    WHEN catalog_id = (
+                        SELECT catalog_id 
+                        FROM "release"
+                        WHERE project_id = :projectId AND status = :status
+                        ORDER BY sort_order DESC
+                        LIMIT 1
+                    ) 
+                    THEN TRUE 
+                    ELSE FALSE 
+                END
+            `,
+        })
+        .where("project_id = :projectId", { projectId, status: ReleaseStatusEnum.RELEASED })
+        .execute();
+}
+
   async setReleaseArtifact(artifact: SetReleaseArtifactDto): Promise<SetReleaseArtifactResDto> {
     this.logger.log(`Adding release artifact for release: ${artifact.version}, artifactName: ${artifact.artifactName}`);
     const release = await this.releaseRepo.findOneBy({ version: artifact.version, project: { id: artifact.projectId } });
@@ -364,8 +387,9 @@ export class ReleaseService {
    
     if ((!regulationsCompliant || (!dependenciesReleased && !fileUploaded)) && release.status === ReleaseStatusEnum.RELEASED) {
       this.logger.log(`Setting release status to in_review for project: ${params.projectId}, version: ${params.version}`);
-      const res = await this.releaseRepo.update({ version: params.version, project: { id: params.projectId } }, { status: ReleaseStatusEnum.IN_REVIEW });
+      const res = await this.releaseRepo.update({ version: params.version, project: { id: params.projectId } }, { status: ReleaseStatusEnum.IN_REVIEW, releasedAt: null});
       if (res.affected > 0) {
+        this.updateLatestForProject(params.projectId);
         release?.dependentReleases?.forEach(dep => {
           this.logger.verbose(`Refreshing dependent release state, project: ${dep.project.id}, version: ${dep.version}`);
           this.refreshReleaseState({ version: dep.version, projectIdentifier: dep.project.id, projectId: dep.project.id })
@@ -376,8 +400,21 @@ export class ReleaseService {
 
     } else if (regulationsCompliant && release.status === ReleaseStatusEnum.IN_REVIEW && (dependenciesReleased || fileUploaded)) {
       this.logger.log(`Setting release status to released for project: ${params.projectId}, version: ${params.version}`);
-      const res = await this.releaseRepo.update({ version: params.version, project: { id: params.projectId } }, { status: ReleaseStatusEnum.RELEASED });
+      // const res = await this.releaseRepo.update({ version: params.version, project: { id: params.projectId } }, { status: ReleaseStatusEnum.RELEASED});
+      const res = await this.releaseRepo.createQueryBuilder()
+        .update()
+        .set({ 
+          status: ReleaseStatusEnum.RELEASED,
+          releasedAt: () => `CASE WHEN released_at IS NULL THEN NOW() ELSE released_at END`
+        })
+        .where("version = :version AND project_id = :projectId", { 
+          version: params.version, 
+          projectId: params.projectId 
+        })
+        .execute();
+        
       if (res.affected > 0) {
+        this.updateLatestForProject(params.projectId);
         release?.dependentReleases?.forEach(dep => {
           this.logger.verbose(`Refreshing dependent release state, project: ${dep.project.id}, version: ${dep.version}`);
           this.refreshReleaseState({ version: dep.version, projectIdentifier: dep.project.id, projectId: dep.project.id })
