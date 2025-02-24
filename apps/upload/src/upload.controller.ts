@@ -3,7 +3,7 @@ import { RoleInProject, UploadVersionEntity } from '@app/common/database/entitie
 import { Controller, Logger } from '@nestjs/common';
 import { EventPattern, MessagePattern, RpcException } from '@nestjs/microservices';
 import { UploadService } from './upload.service';
-import { CreateFileUploadUrlDto, ReleaseArtifactParams, ReleaseParams, SetReleaseArtifactDto, SetReleaseDto, UpdateUploadStatusDto } from '@app/common/dto/upload';
+import { CreateFileUploadUrlDto, ReleaseArtifactNameParams, ReleaseArtifactParams, ReleaseParams, SetReleaseArtifactDto, SetReleaseDto, UpdateUploadStatusDto } from '@app/common/dto/upload';
 import { RpcPayload } from '@app/common/microservice-client';
 import * as fs from 'fs';
 import { FileUploadService } from './file-upload.service';
@@ -98,6 +98,19 @@ export class UploadController {
   @MessagePattern(UploadTopics.DELETE_RELEASE_ARTIFACT)
   deleteReleaseArtifact(@RpcPayload() params: ReleaseArtifactParams){
     return this.releasesService.deleteReleaseArtifact(params);
+  }
+
+
+  @ValidateProjectAnyAccess()
+  @MessagePattern(UploadTopics.GET_ARTIFACT_DOWNLOAD_URL)
+  getArtifactDownloadUrl(@RpcPayload() params: ReleaseArtifactNameParams){
+    return this.releasesService.getArtifactDownloadUrl(params);
+  }
+
+  @ValidateProjectAnyAccess()
+  @MessagePattern(UploadTopics.GET_ARTIFACT_UPLOAD_URL)
+  getArtifactUploadUrl(@RpcPayload() params: ReleaseArtifactNameParams){
+    return "Not implemented";
   }
 
   @ValidateProjectAnyAccess()

@@ -1,5 +1,5 @@
 import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum } from "@app/common/database/entities";
-import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto, ReleaseEventType, ReleaseEventEnum, ReleaseChangedEventDto } from "@app/common/dto/upload";
+import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto, ReleaseEventType, ReleaseEventEnum, ReleaseChangedEventDto, GetReleaseArtifactResDto, ReleaseArtifactNameParams } from "@app/common/dto/upload";
 import { Inject, Injectable, Logger, NotFoundException, ConflictException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Not, Repository } from "typeorm";
@@ -233,6 +233,27 @@ export class ReleaseService {
     }
 
     return "Release Artifact deleted"
+  }
+
+  async getArtifactDownloadUrl(params: ReleaseArtifactNameParams) {
+    this.logger.log(`Getting artifact download url for project: ${params.projectId}, version: ${params.version}, fileName: ${params.fileName}`);
+    const artifact = await this.artifactRepo.findOne({
+      select: { fileUpload: { id: true } },
+      where: { release: { project: { id: params.projectId }, version: params.version }, artifactName: params.fileName },
+      relations: { fileUpload: true }
+    });
+
+    if (!artifact) {
+      throw new NotFoundException(`Release artifact not found for project: ${params.projectId} release: ${params.version}, artifact Name: ${params.fileName}`);
+    }
+
+    const downloadUrl = await this.fileUploadService.getFileDownloadUrl(artifact.fileUpload.id);
+    const res = new GetReleaseArtifactResDto();
+    res.downloadUrl = downloadUrl;
+    res.artifactId = artifact.id;
+    this.logger.debug(`Release artifact download url: ${downloadUrl}, artifact Id: ${artifact.id}`);
+  
+    return res
   }
 
   private async onFileCreate(fileUpload: FileUploadEntity) {
