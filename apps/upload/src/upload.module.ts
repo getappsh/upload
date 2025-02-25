@@ -27,6 +27,7 @@ import { PROJECT_ACCESS_SERVICE } from '@app/common/utils/project-access';
     MicroserviceModule.register({
       name: MicroserviceName.OFFERING_SERVICE,
       type: MicroserviceType.OFFERING,
+      id: 'upload'
     }),
     ApmModule,
     DatabaseModule,
@@ -46,6 +47,7 @@ import { PROJECT_ACCESS_SERVICE } from '@app/common/utils/project-access';
     MicroserviceModule.register({
       name: MicroserviceName.PROJECT_MANAGEMENT_SERVICE,
       type: MicroserviceType.PROJECT_MANAGEMENT,
+      id: 'upload'
     }),
   ],
   controllers: [UploadController],
