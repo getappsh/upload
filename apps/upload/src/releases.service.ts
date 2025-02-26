@@ -208,6 +208,10 @@ export class ReleaseService {
     const saved = await this.artifactRepo.upsert(artifactEntity, upsertOptions);
     res.artifactId = saved.identifiers[0].id;
 
+    if (artifact.type === ArtifactTypeEnum.DOCKER_IMAGE) {
+      this.refreshReleaseState(artifact)
+    }
+
     return res;
   }
 
