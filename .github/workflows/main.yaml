@@ -108,12 +108,10 @@ jobs:
           # set token
           gac token set $UPLOAD_TOKEN
 
-          # set release (as draft)
-          gac releases set $NEW_VERSION --name "v$NEW_VERSION" --notes "Release v$NEW_VERSION" -d
-          gac releases art $NEW_VERSION docker_image -u $IMAGE_URL
+          # set release
+          gac releases set $NEW_VERSION --name "v$NEW_VERSION" --notes "Release v$NEW_VERSION"
+          gac releases art $NEW_VERSION docker_image -u $IMAGE_URL -d
 
-          # undo release as draft
-          gac releases set $NEW_VERSION
           
           echo $?
 
