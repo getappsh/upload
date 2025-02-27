@@ -208,6 +208,10 @@ export class ReleaseService {
     const saved = await this.artifactRepo.upsert(artifactEntity, upsertOptions);
     res.artifactId = saved.identifiers[0].id;
 
+    if (artifact.type === ArtifactTypeEnum.DOCKER_IMAGE) {
+      this.refreshReleaseState(artifact)
+    }
+
     return res;
   }
 
@@ -399,8 +403,13 @@ export class ReleaseService {
 
     this.logger.log(`Release: ${params.version} for project: ${params.projectId} dependencies released: ${dependenciesReleased} (if exists)`);
 
-    const installationArtifacts = release.artifacts.filter((artifact) => artifact?.isInstallationFile)
-    const fileUploaded = installationArtifacts?.length > 0 && await this.fileUploadService.areFilesUploaded(installationArtifacts.map((artifact) => artifact?.fileUpload?.id));
+    const installationArtifacts = release.artifacts.filter((artifact) => artifact?.isInstallationFile);
+    const fileUploaded = installationArtifacts?.length > 0 && await this.fileUploadService
+      .areFilesUploaded(
+        installationArtifacts
+          .filter((artifact) =>  artifact?.type === ArtifactTypeEnum.FILE)
+          .map((artifact) => artifact?.fileUpload?.id)
+      );
 
     this.logger.log(`Release: ${params.version} for project: ${params.projectId} has ${installationArtifacts.length} installation files and they are ready: ${fileUploaded}`);
     
