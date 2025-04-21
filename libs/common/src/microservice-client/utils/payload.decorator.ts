@@ -4,14 +4,17 @@ import { extractRequest } from "./context-helpers";
 
 export const V2Payload = createParamDecorator(
   (key: string, ctx: ExecutionContext) => {
-    const request = extractRequest(ctx);
+    let request = extractRequest(ctx);
     
     if (key === "stringValue"){
       key = undefined
+    }
+
+    if (request as any === "undefined"){
+      request = undefined
     }
     return key ? request?.[key] : request;
   },
 );
 
 export const RpcPayload = process.env.RPC_PAYLOAD_VERSION === "2" ? V2Payload : Payload;
-
