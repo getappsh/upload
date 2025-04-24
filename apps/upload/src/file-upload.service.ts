@@ -3,17 +3,20 @@ import { CreateFileUploadUrlDto, FileUploadUrlDto } from "@app/common/dto/upload
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
-import { LessThanOrEqual, Repository } from "typeorm";
+import { In, LessThanOrEqual, Repository } from "typeorm";
 import { MinioClientService } from "@app/common/AWS/minio-client.service";
-import { SafeCronService } from "@app/common/safe-cron/safe-cron.service";
 import { TimeoutRepeatTask } from "@app/common/safe-cron/timeout-repeated-task.decorator";
+import stream from 'stream';
+import {EventEmitter} from 'eventemitter3';
+
 
 @Injectable()
-export class FileUploadService{
+export class FileUploadService {
 
   private static readonly OBJECT_PREFIX = 'upload/';
   private readonly logger = new Logger(FileUploadService.name);
   private readonly bucketName = this.configService.get('BUCKET_NAME');
+  private emitter: EventEmitter = new EventEmitter();
 
   constructor(
     private readonly configService: ConfigService,
@@ -38,8 +41,10 @@ export class FileUploadService{
     this.logger.log(`generatePreSingedUrl: ${JSON.stringify(signedUrl)}`);
 
     try {
-      await this.uploadRepo.upsert(upload, ['objectKey']);
-      return new FileUploadUrlDto(signedUrl, objectKey);
+      const res = await this.uploadRepo.upsert(upload, ['objectKey']);
+      const id = res.identifiers[0].id
+     
+      return new FileUploadUrlDto(id, signedUrl, objectKey);
     } catch (error) {
       this.logger.error(`Error saving file upload, ${error}`);
       throw error;
@@ -47,6 +52,46 @@ export class FileUploadService{
 
   }
 
+  async getFileDownloadUrl(id: number): Promise<string> {
+    const file = await this.getFileById(id);
+    return this.minioClient.generatePresignedDownloadUrl(this.bucketName, file.objectKey);
+  }
+
+
+  async getFileStream(id: number): Promise<stream.Readable> {
+    const file = await this.getFileById(id);
+    return this.minioClient.getObject(this.bucketName, file.objectKey);
+  }
+
+
+  private getFileById(id: number): Promise<FileUploadEntity> {
+    return this.uploadRepo.findOneBy({id}).catch(err => {throw new Error(`File upload not found: ${id}, error: ${err}`)});
+  }
+
+
+  async getFilesByIds(ids: number[]): Promise<FileUploadEntity[]> {
+    return this.uploadRepo.findBy({ id: In(ids) }).catch(err => {throw new Error(`File upload not found: ${ids}, error: ${err}`)});
+  }
+
+  async areFilesUploaded(ids: number[]): Promise<boolean> {
+    const uploaded = await this.uploadRepo.find({
+      select: ['id'],
+      where: {id: In(ids), status: FileUPloadStatusEnum.UPLOADED},
+    })
+    .catch(err => {throw new Error(`File upload not found: ${ids}, error: ${err}`)});
+    
+    return uploaded.length === ids.length
+  }
+
+
+  async onFileCreate(callback: (file: FileUploadEntity) => void) {
+    this.emitter.on("fileCreated", callback);
+  }
+
+  async onFileDelete(callback: (file: FileUploadEntity) => void) {
+    this.emitter.on("fileDeleted", callback);
+  }
+  
   private createObjectKey(dto: CreateFileUploadUrlDto) {
     if (dto.objectKey) {
       const suffix = dto.objectKey.endsWith('/') ? '' : '/';
@@ -78,14 +123,20 @@ export class FileUploadService{
           file.uploadAt = record?.eventTime;
           file.status = FileUPloadStatusEnum.UPLOADED;
 
-          this.updateUploadFile(file);
+          this.updateUploadFile(file).then(effected => {
+            if (effected > 0) this.emitter.emit("fileCreated", file)
+          });
+          
 
         }else if (eventName.startsWith('s3:ObjectRemoved:')) {
           this.logger.debug(`Object removed: ${JSON.stringify(record)}`);
           const file = new FileUploadEntity();
           file.objectKey = objectKey;
           file.status = FileUPloadStatusEnum.REMOVED;
-          this.updateUploadFile(file);
+          this.updateUploadFile(file).then(effected => {
+            if (effected > 0) this.emitter.emit("fileDeleted", file)
+          });
+
         }
       })
 
@@ -97,13 +148,37 @@ export class FileUploadService{
     });
 
   }
+
+  async removeFile(id: number) {
+    this.logger.debug(`Deleting file with id: ${id}`);
+
+    const file = await this.uploadRepo.findOneBy({ id });
+    if (!file) {
+      this.logger.warn(`File not found: ${id}`); 
+      return;
+    }
+
+    if (file.status === FileUPloadStatusEnum.UPLOADED) {      
+      await this.minioClient.deleteObjects(this.bucketName, file.objectKey);
+    }
   
-  async updateUploadFile(file: FileUploadEntity){
+    this.logger.debug(`Remove file: ${file.objectKey}`);
+    await this.uploadRepo.update({ id }, { status: FileUPloadStatusEnum.REMOVED });
+  }
+
+  async deleteItemRow(id: number) {
+    this.logger.debug(`Deleting item row with id: ${id}`);
+    await this.uploadRepo.delete({ id });
+  }
+  
+  async updateUploadFile(file: FileUploadEntity): Promise<number> {
     this.logger.log(`Updating file upload: ${file.objectKey}, status: ${file.status}`);
     const res = await this.uploadRepo.update({ objectKey: file.objectKey }, file);
     if (res.affected === 0){
       this.logger.warn(`File upload not found: ${file.objectKey}`);
     } 
+
+    return res.affected
   }
 
 
