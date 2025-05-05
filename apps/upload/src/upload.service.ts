@@ -1,6 +1,6 @@
 import { S3Service } from '@app/common/AWS/s3.service';
-import { ProjectEntity, UploadVersionEntity, UploadStatus, AssetTypeEnum} from '@app/common/database/entities';
-import { BadRequestException, ConflictException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ProjectEntity, UploadVersionEntity, UploadStatus, AssetTypeEnum, MemberProjectEntity} from '@app/common/database/entities';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -9,11 +9,12 @@ import { ComponentDto } from '@app/common/dto/discovery';
 import { UpdateUploadStatusDto, UploadEventDto, UploadEventEnum } from '@app/common/dto/upload';
 import { MicroserviceClient, MicroserviceName } from '@app/common/microservice-client';
 import { OfferingTopicsEmit } from '@app/common/microservice-client/topics';
+import { ProjectAccessService } from '@app/common/utils/project-access';
 
 
 
 @Injectable()
-export class UploadService {
+export class UploadService implements ProjectAccessService {
 
   private readonly logger = new Logger(UploadService.name);
 
@@ -23,8 +24,9 @@ export class UploadService {
     private readonly jwtService: JwtService,
     @InjectRepository(UploadVersionEntity) private readonly uploadVersionRepo: Repository<UploadVersionEntity>,
     @InjectRepository(ProjectEntity) private readonly projectRepo: Repository<ProjectEntity>,
+    @InjectRepository(MemberProjectEntity) private readonly memberProjectRepo: Repository<MemberProjectEntity>,
     @Inject(MicroserviceName.OFFERING_SERVICE) private readonly offeringClient: MicroserviceClient,
-
+    
   ) { }
 
 
@@ -225,12 +227,28 @@ export class UploadService {
     return ComponentDto.fromUploadVersionEntity(comp);
   }
 
-  async verifyToken(token: string) {
+  async getProjectFromToken(token: string): Promise<ProjectEntity> {
     const payload = this.jwtService.verify(token)
-    const project = await this.projectRepo.findOne({ where: { id: payload.data.projectId } })
-    if (!project.tokens.includes(token)) {
-      throw new HttpException('Not Allowed in this project ', HttpStatus.FORBIDDEN);
+    const project = await this.projectRepo.findOne({ where: { id: payload.data.projectId, tokens: { token: token, isActive: true } } })
+    if (!project) {
+      throw new ForbiddenException('Not Allowed in this project');
     }
     return project;
+  }
+
+  getMemberInProject(projectIdentifier: number | string,  email: string): Promise<MemberProjectEntity> {
+    this.logger.verbose(`Get member in project: ${projectIdentifier}, with email: ${email}`)
+
+    const projectCondition = typeof projectIdentifier === 'number'
+    ? { id: projectIdentifier }
+    : { name: projectIdentifier };
+
+    return this.memberProjectRepo.findOne({
+      relations: ['project', 'member'],
+      where: {
+        project: projectCondition,
+        member: { email: email }
+      }
+    });
   }
 }

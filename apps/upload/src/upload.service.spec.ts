@@ -212,9 +212,9 @@ describe('UploadService', () => {
   describe('verifyToken', () => {
     it('should verify the token and return the project', async () => {
       const project = projectEntityStub()
-      const token = project.tokens[0];
+      const token = project.tokens[0].token;
 
-      const result = await service.verifyToken(token);
+      const result = await service.getProjectFromToken(token);
 
       expect(result).toEqual(project);
 
@@ -226,7 +226,7 @@ describe('UploadService', () => {
       const token = 'unallowedToken';
 
 
-      await expect(service.verifyToken(token)).rejects.toThrow(HttpException);
+      await expect(service.getProjectFromToken(token)).rejects.toThrow(HttpException);
       expect(jwtService.verify).toHaveBeenCalledWith(token);
       expect(projectRepo.findOne).toHaveBeenCalledWith({ where: { id: expect.anything() } });
     });
