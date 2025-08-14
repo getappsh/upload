@@ -1,5 +1,5 @@
 import { FileUploadEntity, FileUPloadStatusEnum } from "@app/common/database/entities";
-import { CreateFileUploadUrlDto, FileUploadUrlDto } from "@app/common/dto/upload";
+import { CreateFileUploadUrlDto, FileUploadUrlDto, UpdateFileUploadDto } from "@app/common/dto/upload";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -116,26 +116,24 @@ export class FileUploadService {
         if (eventName.startsWith('s3:ObjectCreated:')) {
           this.logger.debug(`Object created: ${JSON.stringify(record)}`);
 
-          const file = new FileUploadEntity();
+          const file = new UpdateFileUploadDto();
           file.objectKey = objectKey;
+          file.status = FileUPloadStatusEnum.UPLOADED;
           file.size = record?.s3?.object?.size;
           file.contentType = record?.s3?.object?.contentType;
           file.uploadAt = record?.eventTime;
-          file.status = FileUPloadStatusEnum.UPLOADED;
 
-          this.updateUploadFile(file).then(effected => {
-            if (effected > 0) this.emitter.emit("fileCreated", file)
-          });
+          this.updateUploadFile(file);
           
 
         }else if (eventName.startsWith('s3:ObjectRemoved:')) {
           this.logger.debug(`Object removed: ${JSON.stringify(record)}`);
-          const file = new FileUploadEntity();
+     
+          const file = new UpdateFileUploadDto();
           file.objectKey = objectKey;
           file.status = FileUPloadStatusEnum.REMOVED;
-          this.updateUploadFile(file).then(effected => {
-            if (effected > 0) this.emitter.emit("fileDeleted", file)
-          });
+
+          this.updateUploadFile(file);
 
         }
       })
@@ -171,13 +169,25 @@ export class FileUploadService {
     await this.uploadRepo.delete({ id });
   }
   
-  async updateUploadFile(file: FileUploadEntity): Promise<number> {
+  async updateUploadFile(file: UpdateFileUploadDto): Promise<number> {
     this.logger.log(`Updating file upload: ${file.objectKey}, status: ${file.status}`);
+    
+    if (!file.objectKey) {
+      this.logger.warn(`File upload object key is required: ${JSON.stringify(file)}`);
+      return 0;
+    }
+  
     const res = await this.uploadRepo.update({ objectKey: file.objectKey }, file);
     if (res.affected === 0){
       this.logger.warn(`File upload not found: ${file.objectKey}`);
-    } 
-
+    }else{
+      if (file.status === FileUPloadStatusEnum.UPLOADED) {
+        this.emitter.emit("fileCreated", file)
+      }else if (file.status === FileUPloadStatusEnum.REMOVED) {
+        this.emitter.emit("fileDeleted", file)
+      }
+    }
+    
     return res.affected
   }
 

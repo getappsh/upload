@@ -3,7 +3,7 @@ import { RoleInProject, UploadVersionEntity } from '@app/common/database/entitie
 import { Controller, Logger } from '@nestjs/common';
 import { EventPattern, MessagePattern, RpcException } from '@nestjs/microservices';
 import { UploadService } from './upload.service';
-import { CreateFileUploadUrlDto, ReleaseArtifactNameParams, ReleaseArtifactParams, ReleaseParams, SetReleaseArtifactDto, SetReleaseDto, UpdateUploadStatusDto } from '@app/common/dto/upload';
+import { CreateFileUploadUrlDto, ReleaseArtifactNameParams, ReleaseArtifactParams, ReleaseParams, SetReleaseArtifactDto, SetReleaseDto, UpdateFileUploadDto, UpdateUploadStatusDto } from '@app/common/dto/upload';
 import { RpcPayload } from '@app/common/microservice-client';
 import * as fs from 'fs';
 import { FileUploadService } from './file-upload.service';
@@ -52,6 +52,12 @@ export class UploadController {
   @MessagePattern(UploadTopics.CREATE_FILE_UPLOAD_URL)
   createFileUploadUrl(@RpcPayload() dto: CreateFileUploadUrlDto) {
     return this.fileUploadService.createFileUploadUrl(dto);
+  }
+
+  @EventPattern(UploadTopicsEmit.UPDATE_FILE_UPLOAD)
+  updateFileUpload(@RpcPayload() file: UpdateFileUploadDto) {
+    this.logger.log(`Update file upload: ${JSON.stringify(file)}`);
+    return this.fileUploadService.updateUploadFile(file);
   }
 
   @MessagePattern(UploadTopics.CHECK_HEALTH)
