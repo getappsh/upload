@@ -1,6 +1,6 @@
 import { FileUploadEntity, FileUPloadStatusEnum } from "@app/common/database/entities";
 import { CreateFileUploadUrlDto, FileUploadUrlDto, UpdateFileUploadDto } from "@app/common/dto/upload";
-import { Injectable, Logger } from "@nestjs/common";
+import { ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, LessThanOrEqual, Repository } from "typeorm";
@@ -52,6 +52,18 @@ export class FileUploadService {
 
   }
 
+  async getFileUploadUrl(objectKey: string): Promise<FileUploadUrlDto> {
+    this.logger.log(`Get file upload URL for objectKey: ${objectKey}`);
+    const file = await this.getFileByObjectKey(objectKey);
+    this.logger.verbose(`Get file upload URL for objectKey: ${objectKey}, file: ${JSON.stringify(file)}`);
+    if (file.status === FileUPloadStatusEnum.UPLOADED) {
+      throw new ForbiddenException(`File already uploaded: ${file.objectKey}`);
+    }
+    
+    const url = await this.minioClient.generatePresignedUploadUrl(this.bucketName, file.objectKey);
+    return new FileUploadUrlDto(file.id, url, file.objectKey);
+  }
+
   async getFileDownloadUrl(id: number): Promise<string> {
     const file = await this.getFileById(id);
     return this.minioClient.generatePresignedDownloadUrl(this.bucketName, file.objectKey);
@@ -65,9 +77,14 @@ export class FileUploadService {
 
 
   private getFileById(id: number): Promise<FileUploadEntity> {
-    return this.uploadRepo.findOneBy({id}).catch(err => {throw new Error(`File upload not found: ${id}, error: ${err}`)});
+    return this.uploadRepo.findOneBy({id}).catch(err => {throw new NotFoundException(`File upload not found: ${id}, error: ${err}`)});
   }
 
+  private getFileByObjectKey(objectKey: string): Promise<FileUploadEntity> {
+    return this.uploadRepo.findOneBy({objectKey: objectKey}).catch(err => {
+      throw new Error(`File upload not found: ${objectKey}, error: ${err}`)
+    });
+  } 
 
   async getFilesByIds(ids: number[]): Promise<FileUploadEntity[]> {
     return this.uploadRepo.findBy({ id: In(ids) }).catch(err => {throw new Error(`File upload not found: ${ids}, error: ${err}`)});

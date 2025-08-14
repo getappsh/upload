@@ -54,9 +54,13 @@ export class UploadController {
     return this.fileUploadService.createFileUploadUrl(dto);
   }
 
+  @MessagePattern(UploadTopics.GET_FILE_UPLOAD_URL)
+  getFileUploadUrl(@RpcPayload('objectKey') objectKey: string) {
+    return this.fileUploadService.getFileUploadUrl(objectKey);
+  }
+
   @EventPattern(UploadTopicsEmit.UPDATE_FILE_UPLOAD)
   updateFileUpload(@RpcPayload() file: UpdateFileUploadDto) {
-    this.logger.log(`Update file upload: ${JSON.stringify(file)}`);
     return this.fileUploadService.updateUploadFile(file);
   }
 
