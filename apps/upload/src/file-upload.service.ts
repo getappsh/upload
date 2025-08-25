@@ -8,6 +8,7 @@ import { MinioClientService } from "@app/common/AWS/minio-client.service";
 import { TimeoutRepeatTask } from "@app/common/safe-cron/timeout-repeated-task.decorator";
 import stream from 'stream';
 import {EventEmitter} from 'eventemitter3';
+import { CosignSignatureService } from "@app/common/AWS/cosign-signature.service";
 
 
 @Injectable()
@@ -21,6 +22,7 @@ export class FileUploadService {
   constructor(
     private readonly configService: ConfigService,
     private readonly minioClient: MinioClientService,
+    private readonly cosignSignatureService: CosignSignatureService,
     @InjectRepository(FileUploadEntity) private readonly uploadRepo: Repository<FileUploadEntity>,
   ) { }
 
@@ -199,6 +201,9 @@ export class FileUploadService {
       this.logger.warn(`File upload not found: ${file.objectKey}`);
     }else{
       if (file.status === FileUPloadStatusEnum.UPLOADED) {
+        this.signFile(file.objectKey).catch(err => {
+          this.logger.error(`Error signing file: ${file.objectKey}, error: ${err}`);
+        });
         this.emitter.emit("fileCreated", file)
       }else if (file.status === FileUPloadStatusEnum.REMOVED) {
         this.emitter.emit("fileDeleted", file)
@@ -207,6 +212,23 @@ export class FileUploadService {
     
     return res.affected
   }
+
+  private async signFile(objectKey: string): Promise<void> {
+    this.logger.log(`Signing file with objectKey: ${objectKey}`);
+    const file = await this.getFileByObjectKey(objectKey);
+    if (!file) {
+      this.logger.warn(`File not found: ${objectKey}`);
+      return;
+    }
+    this.logger.debug(`File found: ${file.objectKey}, id: ${file.id}`);
+
+    const fileStream = await this.getFileStream(file.id);
+    const signature = await this.cosignSignatureService.signFile(fileStream);
+    this.logger.log(`File signed: ${file.objectKey}, signature: ${signature.toString()}`);
+    await this.uploadRepo.update({ id: file.id }, { signature: signature.toString() });
+    this.logger.debug(`File signature saved to DB: ${file.objectKey}`);
+  }
+
 
 
   // TODO sync deleted files
