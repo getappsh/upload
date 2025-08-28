@@ -195,15 +195,18 @@ export class FileUploadService {
       this.logger.warn(`File upload object key is required: ${JSON.stringify(file)}`);
       return 0;
     }
-  
+
+    if (file.status === FileUPloadStatusEnum.UPLOADED) {
+      this.signFile(file.objectKey).catch(err => {
+        this.logger.error(`Error signing file: ${file.objectKey}, error: ${err}`);
+      });
+    }
+
     const res = await this.uploadRepo.update({ objectKey: file.objectKey }, file);
     if (res.affected === 0){
       this.logger.warn(`File upload not found: ${file.objectKey}`);
     }else{
       if (file.status === FileUPloadStatusEnum.UPLOADED) {
-        this.signFile(file.objectKey).catch(err => {
-          this.logger.error(`Error signing file: ${file.objectKey}, error: ${err}`);
-        });
         this.emitter.emit("fileCreated", file)
       }else if (file.status === FileUPloadStatusEnum.REMOVED) {
         this.emitter.emit("fileDeleted", file)
@@ -245,7 +248,7 @@ export class FileUploadService {
     this.logger.log('Syncing uploaded files');
 
     const now = new Date();
-    const batchSize = 100;
+    const batchSize = 10;
     let skip = 0;
     let files;
 
@@ -288,22 +291,22 @@ export class FileUploadService {
           const stats = filesStats[index];
           if (!stats) return null;
 
-          return {
-            id: file.id,
-            objectKey: file.objectKey,
-            size: stats?.size,
-            contentType: stats?.metaData?.['content-type'],
-            uploadAt: stats?.lastModified,
-            status: FileUPloadStatusEnum.UPLOADED
-          };
+          let dto = new UpdateFileUploadDto();
+          dto.objectKey = file.objectKey;
+          dto.status = FileUPloadStatusEnum.UPLOADED;
+          dto.size = stats.size;
+          dto.contentType = stats?.metaData?.['content-type'];
+          dto.uploadAt = stats.lastModified;
+          return dto;
 
         }).filter(file => file !== null);
 
         if (filesToUpdate.length > 0) {
           this.logger.debug(`Updating files: ${filesToUpdate.map(file => file.objectKey)}`);
-          await this.uploadRepo.save(filesToUpdate).catch(err => {
-            this.logger.error(`Error updating files: ${err}`);
-          });
+          Promise.all(filesToUpdate.map(file => this.updateUploadFile(file))).catch(err => {
+            this.logger.error(`Error updating files: ${err}`)
+            });
+  
         }
       }
 
