@@ -79,8 +79,14 @@ export class ReleaseService {
   }
 
   async getRelease(params: ReleaseParams): Promise<DetailedReleaseDto> {
-    this.logger.log(`Getting release for project: ${params.projectId}, version: ${params.version}`);
-
+    this.logger.log(`Getting release for project: ${params.projectIdentifier}, version: ${params.version}`);
+    if (typeof params.projectIdentifier !== 'number') {
+      const project = await this.releaseRepo.manager.getRepository(ProjectEntity).findOneBy({ name: params.projectIdentifier });
+      if (!project) {
+        throw new NotFoundException(`Project not found: ${params.projectIdentifier}`);
+      }
+      params.projectId = project.id;
+    }
     return this.getReleaseEntity(params).then((release) => {
       if (!release) {
         throw new NotFoundException(`Release not found for project: ${params.projectId}, version: ${params.version}`);
@@ -99,16 +105,22 @@ export class ReleaseService {
       relations: {
         artifacts: { fileUpload: true },
         dependencies: { project: true },
-        dependentReleases: { project: true }
+        dependentReleases: { project: true },
+        project: true
       }
     })
   }
 
-  async getReleases(projectId: number): Promise<ReleaseDto[]> {
-    this.logger.log(`Getting releases for project: ${projectId}`);
+  async getReleases(projectIdentifier: number | string): Promise<ReleaseDto[]> {
+    this.logger.log(`Getting releases for project: ${projectIdentifier}`);
+
+     const projectCondition = typeof projectIdentifier === 'number'
+    ? { id: projectIdentifier }
+    : { name: projectIdentifier };
+
     const releases = await this.releaseRepo.find({
       where: {
-        project: { id: projectId }
+        project: projectCondition
       },
       order: { sortOrder: 'DESC' },
       relations: ['project'],

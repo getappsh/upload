@@ -79,8 +79,8 @@ export class UploadController {
   }
 
   @MessagePattern(UploadTopics.GET_RELEASES)
-  getReleases(@RpcPayload('projectIdentifier') projectId: number){
-    return this.releasesService.getReleases(projectId);
+  getReleases(@RpcPayload('projectIdentifier') projectIdentifier: number | string){
+    return this.releasesService.getReleases(projectIdentifier);
   }
 
   @MessagePattern(UploadTopics.GET_RELEASE_BY_VERSION)
