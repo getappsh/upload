@@ -78,13 +78,11 @@ export class UploadController {
     return this.releasesService.setRelease(release);
   }
 
-  @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.GET_RELEASES)
   getReleases(@RpcPayload('projectId') projectId: number){
     return this.releasesService.getReleases(projectId);
   }
 
-  @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.GET_RELEASE_BY_VERSION)
   getRelease(@RpcPayload() params: ReleaseParams){
     return this.releasesService.getRelease(params);
