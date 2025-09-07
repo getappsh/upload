@@ -79,7 +79,7 @@ export class UploadController {
   }
 
   @MessagePattern(UploadTopics.GET_RELEASES)
-  getReleases(@RpcPayload('projectId') projectId: number){
+  getReleases(@RpcPayload('projectIdentifier') projectId: number){
     return this.releasesService.getReleases(projectId);
   }
 
