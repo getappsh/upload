@@ -38,7 +38,7 @@ export class ReleaseArtifactEntity extends BaseEntity {
   @Column({ name: 'isExectuable', type: 'boolean', default: false})
   isExectuable: boolean
 
-  @Column({ name: 'arguments', type: 'string', nullable: true, default: null})
+  @Column({ name: 'arguments', type: 'text', nullable: true, default: null})
   arguments?: string | null
 
 }
