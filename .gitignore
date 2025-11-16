@@ -40,3 +40,5 @@ temp_docker_images/*
 .gitlab-ci.yml
 
 manifest.json
+keys/cosign.key
+keys/cosign.pub
