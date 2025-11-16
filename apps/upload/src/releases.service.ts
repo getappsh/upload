@@ -190,7 +190,9 @@ export class ReleaseService {
     artifactEntity.metadata = artifact.metadata;
     artifactEntity.release = release;
     artifactEntity.isInstallationFile = artifact.isInstallationFile;
-
+    artifactEntity.arguments = artifact.arguments;
+    artifactEntity.isExectuable = artifact.isExecutable;
+    
     const res = new SetReleaseArtifactResDto();
     const upsertOptions: UpsertOptions<ReleaseArtifactEntity> = { conflictPaths: [] };
 
