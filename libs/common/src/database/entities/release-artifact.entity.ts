@@ -40,5 +40,4 @@ export class ReleaseArtifactEntity extends BaseEntity {
 
   @Column({ name: 'arguments', type: 'text', nullable: true, default: null})
   arguments?: string | null
-
 }

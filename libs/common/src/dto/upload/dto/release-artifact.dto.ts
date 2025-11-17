@@ -107,7 +107,7 @@ export class ReleaseArtifactDto {
   @IsString()
   @IsOptional()
   @ApiProperty({ required: false})
-  arguments: string
+  arguments?: string | null
 
   @ApiProperty()
   uploadId?: number

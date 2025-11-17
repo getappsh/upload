@@ -1,3 +1,4 @@
+import { ApiProperty } from "@nestjs/swagger";
 import { 
   IsBoolean, 
   IsNumber, 
@@ -9,50 +10,53 @@ import {
   ValidationArguments 
 } from "class-validator";
 
-@ValidatorConstraint({ name: 'FileMetaDataRequirement', async: false })
-class FileMetaDataRequirement implements ValidatorConstraintInterface {
-  validate(dto: any) {
-    const hasId = dto.id !== undefined && dto.id !== null;
-    const hasReleaseAndArtifact = !!dto.releaseId && !!dto.artifactName;
+// @ValidatorConstraint({ name: 'FileMetaDataRequirement', async: false })
+// class FileMetaDataRequirement implements ValidatorConstraintInterface {
+//   validate(dto: any) {
+//     const hasId = dto.id !== undefined && dto.id !== null;
+//     const hasReleaseAndArtifact = !!dto.releaseId && !!dto.artifactName;
 
-    return hasId || hasReleaseAndArtifact;
-  }
+//     return hasId || hasReleaseAndArtifact;
+//   }
 
-  defaultMessage() {
-    return 'You must provide either "id" OR both "releaseId" and "artifactName".';
-  }
-}
+//   defaultMessage() {
+//     return 'You must provide either "id" OR both "releaseId" and "artifactName".';
+//   }
+// }
 
 export class UpdateFileMetaDataDto {
 
   // 👇 Attach validator here — this makes it class-level.
-  @Validate(FileMetaDataRequirement)
-  private readonly _classValidator!: boolean;
+  // @Validate(FileMetaDataRequirement)
+  // private readonly _classValidator!: boolean;
 
   @IsOptional()
   @IsNumber()
   id?: number;
 
-  @IsOptional()
-  @IsString()
-  releaseId?: string;
+  // @IsOptional()
+  // @IsString()
+  // releaseId?: string;
 
-  @IsOptional()
-  @IsString()
-  artifactName?: string;
-
+  // @IsOptional()
+  // @IsString()
+  // artifactName?: string;
+  @ApiProperty({required: false})
   @IsOptional()
   @IsString()
   arguments?: string;
 
+  @ApiProperty({required: false})
   @IsOptional()
   @IsBoolean()
   isExecutable?: boolean;
 
+  @ApiProperty({required: false})
   @IsOptional()
   @IsBoolean()
   isInstallationFile?: boolean;
 
+  @ApiProperty({required: false})
   @IsOptional()
   metadata?: Record<string, any>;
 }
