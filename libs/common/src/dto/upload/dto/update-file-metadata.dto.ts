@@ -48,4 +48,11 @@ export class UpdateFileMetaDataDto {
   @IsOptional()
   @IsBoolean()
   isExecutable?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isInstallationFile?: boolean;
+
+  @IsOptional()
+  metadata?: Record<string, any>;
 }
