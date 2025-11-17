@@ -44,6 +44,13 @@ export class UploadController {
     return this.uploadService.updateUploadStatus(updateUploadStatusDto);
   }
 
+  
+  @ValidateProjectAnyAccess()
+  @MessagePattern(UploadTopics.UPDATE_FILE_METADATA)
+  updateFileMetadata(@RpcPayload() dto: UpdateFileMetaDataDto){
+    return this.releasesService.updateFileMetadata(dto);
+  }
+
   @MessagePattern(UploadTopics.LAST_VERSION)
   getLastVersion(@RpcPayload() params: {projectId: number}){
     return this.uploadService.getLastVersion(params);

@@ -252,13 +252,6 @@ export class UploadService implements ProjectAccessService {
     });
   }
 
-  async updateFileMetadata(updateFileMetdataDto: UpdateFileMetaDataDto) {
-    //it will update based on id or releaseId + artifactName
-    if(!updateFileMetdataDto.id){
-      const upload = await this.uploadVersionRepo.findOneBy({
-        ['release_id']: updateFileMetdataDto.releaseId,
-        artifactName: updateFileMetdataDto.artifactName
-      })
-    }
+
     
 }

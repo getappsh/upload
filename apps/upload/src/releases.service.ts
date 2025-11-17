@@ -1,5 +1,5 @@
 import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum } from "@app/common/database/entities";
-import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto, ReleaseEventType, ReleaseEventEnum, ReleaseChangedEventDto, GetReleaseArtifactResDto, ReleaseArtifactNameParams } from "@app/common/dto/upload";
+import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto, ReleaseEventType, ReleaseEventEnum, ReleaseChangedEventDto, GetReleaseArtifactResDto, ReleaseArtifactNameParams, UpdateFileMetaDataDto } from "@app/common/dto/upload";
 import { Inject, Injectable, Logger, NotFoundException, ConflictException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Not, Repository } from "typeorm";
@@ -471,5 +471,26 @@ export class ReleaseService {
 
     this.sendProjectReleasesChangedEvent(params.projectId, release.catalogId, changeStatus);
   }
-  
+    async updateFileMetadata(dto: UpdateFileMetaDataDto) {
+    //it will update based on id or releaseId + artifactName
+    if(!dto.id){
+      //find artifact id based on releaseId + artifactName
+      const artifact = await this.artifactRepo.findOne({
+        where: { release: { catalogId: dto.releaseId }, artifactName: dto.artifactName }
+      });
+      if(!artifact){
+        throw new NotFoundException(`Artifact not found for releaseId: ${dto.releaseId} and artifactName: ${dto.artifactName}`);
+      } 
+    }
+    
+  const updateResult = await this.artifactRepo.update(
+      dto.id ? { id: dto.id } : { release: { catalogId: dto.releaseId }, artifactName: dto.artifactName },
+      {
+        isExectuable: dto.isExecutable,
+        isInstallationFile: dto.isInstallationFile,
+        arguments: dto.arguments,
+        metadata: dto.metadata
+      }
+    );
+  }
 }
