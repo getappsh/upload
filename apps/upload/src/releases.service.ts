@@ -471,27 +471,17 @@ export class ReleaseService {
 
     this.sendProjectReleasesChangedEvent(params.projectId, release.catalogId, changeStatus);
   }
-    async updateFileMetadata(dto: UpdateFileMetaDataDto) {
-    //it will update based on id or releaseId + artifactName
-    if(!dto.id){
-      //find artifact id based on releaseId + artifactName
-      const artifact = await this.artifactRepo.findOne({
-        where: { release: { catalogId: dto.releaseId }, artifactName: dto.artifactName }
-      });
-      if(!artifact){
-        throw new NotFoundException(`Artifact not found for releaseId: ${dto.releaseId} and artifactName: ${dto.artifactName}`);
-      } 
-    }
+  async updateFileMetadata(dto: UpdateFileMetaDataDto) {
     
-  const affectedRows = await this.artifactRepo.update(
-      dto.id ? { id: dto.id } : { release: { catalogId: dto.releaseId }, artifactName: dto.artifactName },
-      {
-        isExectuable: dto.isExecutable,
-        isInstallationFile: dto.isInstallationFile,
-        arguments: dto.arguments,
-        metadata: dto.metadata
-      }
-    );
-    return affectedRows.affected;
-  }
+    const affectedRows = await this.artifactRepo.update(
+      { id: dto.id },
+        {
+          isExectuable: dto.isExecutable,
+          isInstallationFile: dto.isInstallationFile,
+          arguments: dto.arguments,
+          metadata: dto.metadata
+        }
+      );
+      return affectedRows.affected;
+    }
 }
