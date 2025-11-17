@@ -483,7 +483,7 @@ export class ReleaseService {
       } 
     }
     
-  const updateResult = await this.artifactRepo.update(
+  const affectedRows = await this.artifactRepo.update(
       dto.id ? { id: dto.id } : { release: { catalogId: dto.releaseId }, artifactName: dto.artifactName },
       {
         isExectuable: dto.isExecutable,
@@ -492,5 +492,6 @@ export class ReleaseService {
         metadata: dto.metadata
       }
     );
+    return affectedRows.affected;
   }
 }
