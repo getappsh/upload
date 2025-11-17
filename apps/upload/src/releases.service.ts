@@ -471,4 +471,5 @@ export class ReleaseService {
 
     this.sendProjectReleasesChangedEvent(params.projectId, release.catalogId, changeStatus);
   }
+  
 }

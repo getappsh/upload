@@ -6,7 +6,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DockerDownloadService } from './docker-download.service';
 import { ComponentDto } from '@app/common/dto/discovery';
-import { UpdateUploadStatusDto, UploadEventDto, UploadEventEnum } from '@app/common/dto/upload';
+import { UpdateFileMetaDataDto, UpdateUploadStatusDto, UploadEventDto, UploadEventEnum } from '@app/common/dto/upload';
 import { MicroserviceClient, MicroserviceName } from '@app/common/microservice-client';
 import { OfferingTopicsEmit } from '@app/common/microservice-client/topics';
 import { ProjectAccessService } from '@app/common/utils/project-access';
@@ -251,4 +251,14 @@ export class UploadService implements ProjectAccessService {
       }
     });
   }
+
+  async updateFileMetadata(updateFileMetdataDto: UpdateFileMetaDataDto) {
+    //it will update based on id or releaseId + artifactName
+    if(!updateFileMetdataDto.id){
+      const upload = await this.uploadVersionRepo.findOneBy({
+        ['release_id']: updateFileMetdataDto.releaseId,
+        artifactName: updateFileMetdataDto.artifactName
+      })
+    }
+    
 }
