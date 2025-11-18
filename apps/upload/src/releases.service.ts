@@ -191,7 +191,7 @@ export class ReleaseService {
     artifactEntity.release = release;
     artifactEntity.isInstallationFile = artifact.isInstallationFile;
     artifactEntity.arguments = artifact.arguments;
-    artifactEntity.isExectuable = artifact.isExecutable;
+    artifactEntity.isExecutable = artifact.isExecutable;
     
     const res = new SetReleaseArtifactResDto();
     const upsertOptions: UpsertOptions<ReleaseArtifactEntity> = { conflictPaths: [] };
@@ -476,7 +476,7 @@ export class ReleaseService {
     const affectedRows = await this.artifactRepo.update(
       { id: dto.id },
         {
-          isExectuable: dto.isExecutable,
+          isExecutable: dto.isExecutable,
           isInstallationFile: dto.isInstallationFile,
           arguments: dto.arguments,
           metadata: dto.metadata

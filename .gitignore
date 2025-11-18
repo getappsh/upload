@@ -42,3 +42,5 @@ temp_docker_images/*
 manifest.json
 keys/cosign.key
 keys/cosign.pub
+._.DS_Store
+._.env
