@@ -6,7 +6,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DockerDownloadService } from './docker-download.service';
 import { ComponentDto } from '@app/common/dto/discovery';
-import { UpdateFileMetaDataDto, UpdateUploadStatusDto, UploadEventDto, UploadEventEnum } from '@app/common/dto/upload';
+import { UpdateFilePropertiesDto, UpdateUploadStatusDto, UploadEventDto, UploadEventEnum } from '@app/common/dto/upload';
 import { MicroserviceClient, MicroserviceName } from '@app/common/microservice-client';
 import { OfferingTopicsEmit } from '@app/common/microservice-client/topics';
 import { ProjectAccessService } from '@app/common/utils/project-access';
