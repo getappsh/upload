@@ -3,7 +3,7 @@ import { RoleInProject, UploadVersionEntity } from '@app/common/database/entitie
 import { Controller, Logger } from '@nestjs/common';
 import { EventPattern, MessagePattern, RpcException } from '@nestjs/microservices';
 import { UploadService } from './upload.service';
-import { CreateFileUploadUrlDto, ReleaseArtifactNameParams, ReleaseArtifactParams, ReleaseParams, SetReleaseArtifactDto, SetReleaseDto, UpdateFileUploadDto, UpdateUploadStatusDto } from '@app/common/dto/upload';
+import { CreateFileUploadUrlDto, ReleaseArtifactNameParams, ReleaseArtifactParams, ReleaseParams, SetReleaseArtifactDto, SetReleaseDto, UpdateFileUploadDto, UpdateUploadStatusDto, UpdateFilePropertiesDto } from '@app/common/dto/upload';
 import { RpcPayload } from '@app/common/microservice-client';
 import * as fs from 'fs';
 import { FileUploadService } from './file-upload.service';
@@ -42,6 +42,13 @@ export class UploadController {
   @MessagePattern(UploadTopics.UPDATE_UPLOAD_STATUS)
   updateUploadStatus(@RpcPayload() updateUploadStatusDto: UpdateUploadStatusDto){
     return this.uploadService.updateUploadStatus(updateUploadStatusDto);
+  }
+
+  
+  @ValidateProjectAnyAccess()
+  @MessagePattern(UploadTopics.UPDATE_FILE_METADATA)
+  updateFileMetadata(@RpcPayload() dto: UpdateFilePropertiesDto){
+    return this.releasesService.updateFileMetadata(dto);
   }
 
   @MessagePattern(UploadTopics.LAST_VERSION)
@@ -157,6 +164,7 @@ export class UploadController {
     this.releasesService.refreshReleaseState(params);
     return res
   }
+
 
   @EventPattern(UploadTopicsEmit.PROJECT_REGULATION_CHANGED)
   async onProjectRegulationChanged(@RpcPayload() event: RegulationChangedEvent) {
