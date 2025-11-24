@@ -124,6 +124,7 @@ export enum DeviceComponentStateEnum{
     DEPLOY = "deploy",
     INSTALLED = "installed",
     UNINSTALLED = "uninstalled",
+    ERROR = "error"
 }
 
 export enum OfferingActionEnum{
