@@ -7,7 +7,7 @@ import { In, LessThanOrEqual, Repository } from "typeorm";
 import { MinioClientService } from "@app/common/AWS/minio-client.service";
 import { TimeoutRepeatTask } from "@app/common/safe-cron/timeout-repeated-task.decorator";
 import stream from 'stream';
-import {EventEmitter} from 'eventemitter3';
+import { EventEmitter } from 'eventemitter3';
 import { CosignSignatureService } from "@app/common/AWS/cosign-signature.service";
 
 
@@ -36,8 +36,8 @@ export class FileUploadService {
     upload.fileName = dto.fileName;
     upload.objectKey = objectKey;
     upload.bucketName = this.bucketName
-    
-    
+
+
     const signedUrl = await this.minioClient.generatePresignedUploadUrl(this.bucketName, objectKey);
 
     this.logger.log(`generatePreSingedUrl: ${JSON.stringify(signedUrl)}`);
@@ -45,7 +45,7 @@ export class FileUploadService {
     try {
       const res = await this.uploadRepo.upsert(upload, ['objectKey']);
       const id = res.identifiers[0].id
-     
+
       return new FileUploadUrlDto(id, signedUrl, objectKey);
     } catch (error) {
       this.logger.error(`Error saving file upload, ${error}`);
@@ -61,7 +61,7 @@ export class FileUploadService {
     if (file.status === FileUPloadStatusEnum.UPLOADED) {
       throw new ForbiddenException(`File already uploaded: ${file.objectKey}`);
     }
-    
+
     const url = await this.minioClient.generatePresignedUploadUrl(this.bucketName, file.objectKey);
     return new FileUploadUrlDto(file.id, url, file.objectKey);
   }
@@ -79,26 +79,26 @@ export class FileUploadService {
 
 
   private getFileById(id: number): Promise<FileUploadEntity> {
-    return this.uploadRepo.findOneBy({id}).catch(err => {throw new NotFoundException(`File upload not found: ${id}, error: ${err}`)});
+    return this.uploadRepo.findOneBy({ id }).catch(err => { throw new NotFoundException(`File upload not found: ${id}, error: ${err}`) });
   }
 
   private getFileByObjectKey(objectKey: string): Promise<FileUploadEntity> {
-    return this.uploadRepo.findOneBy({objectKey: objectKey}).catch(err => {
+    return this.uploadRepo.findOneBy({ objectKey: objectKey }).catch(err => {
       throw new Error(`File upload not found: ${objectKey}, error: ${err}`)
     });
-  } 
+  }
 
   async getFilesByIds(ids: number[]): Promise<FileUploadEntity[]> {
-    return this.uploadRepo.findBy({ id: In(ids) }).catch(err => {throw new Error(`File upload not found: ${ids}, error: ${err}`)});
+    return this.uploadRepo.findBy({ id: In(ids) }).catch(err => { throw new Error(`File upload not found: ${ids}, error: ${err}`) });
   }
 
   async areFilesUploaded(ids: number[]): Promise<boolean> {
     const uploaded = await this.uploadRepo.find({
       select: ['id'],
-      where: {id: In(ids), status: FileUPloadStatusEnum.UPLOADED},
+      where: { id: In(ids), status: FileUPloadStatusEnum.UPLOADED },
     })
-    .catch(err => {throw new Error(`File upload not found: ${ids}, error: ${err}`)});
-    
+      .catch(err => { throw new Error(`File upload not found: ${ids}, error: ${err}`) });
+
     return uploaded.length === ids.length
   }
 
@@ -110,14 +110,14 @@ export class FileUploadService {
   async onFileDelete(callback: (file: FileUploadEntity) => void) {
     this.emitter.on("fileDeleted", callback);
   }
-  
+
   private createObjectKey(dto: CreateFileUploadUrlDto) {
     if (dto.objectKey) {
       const suffix = dto.objectKey.endsWith('/') ? '' : '/';
       return `${FileUploadService.OBJECT_PREFIX}${dto.userId}/${dto.objectKey}${suffix}${dto.fileName}`;
     }
-  
-    const sanitizedFileName = dto.fileName.replace(/[^a-zA-Z0-9._-]/g, '_'); 
+
+    const sanitizedFileName = dto.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
     return `${FileUploadService.OBJECT_PREFIX}${dto.userId}/${sanitizedFileName}`;
   }
 
@@ -143,11 +143,11 @@ export class FileUploadService {
           file.uploadAt = record?.eventTime;
 
           this.updateUploadFile(file);
-          
 
-        }else if (eventName.startsWith('s3:ObjectRemoved:')) {
+
+        } else if (eventName.startsWith('s3:ObjectRemoved:')) {
           this.logger.debug(`Object removed: ${JSON.stringify(record)}`);
-     
+
           const file = new UpdateFileUploadDto();
           file.objectKey = objectKey;
           file.status = FileUPloadStatusEnum.REMOVED;
@@ -171,14 +171,14 @@ export class FileUploadService {
 
     const file = await this.uploadRepo.findOneBy({ id });
     if (!file) {
-      this.logger.warn(`File not found: ${id}`); 
+      this.logger.warn(`File not found: ${id}`);
       return;
     }
 
-    if (file.status === FileUPloadStatusEnum.UPLOADED) {      
+    if (file.status === FileUPloadStatusEnum.UPLOADED) {
       await this.minioClient.deleteObjects(this.bucketName, file.objectKey);
     }
-  
+
     this.logger.debug(`Remove file: ${file.objectKey}`);
     await this.uploadRepo.update({ id }, { status: FileUPloadStatusEnum.REMOVED });
   }
@@ -187,10 +187,10 @@ export class FileUploadService {
     this.logger.debug(`Deleting item row with id: ${id}`);
     await this.uploadRepo.delete({ id });
   }
-  
+
   async updateUploadFile(file: UpdateFileUploadDto): Promise<number> {
     this.logger.log(`Updating file upload: ${file.objectKey}, status: ${file.status}`);
-    
+
     if (!file.objectKey) {
       this.logger.warn(`File upload object key is required: ${JSON.stringify(file)}`);
       return 0;
@@ -203,16 +203,16 @@ export class FileUploadService {
     }
 
     const res = await this.uploadRepo.update({ objectKey: file.objectKey }, file);
-    if (res.affected === 0){
+    if (res.affected === 0) {
       this.logger.warn(`File upload not found: ${file.objectKey}`);
-    }else{
+    } else {
       if (file.status === FileUPloadStatusEnum.UPLOADED) {
         this.emitter.emit("fileCreated", file)
-      }else if (file.status === FileUPloadStatusEnum.REMOVED) {
+      } else if (file.status === FileUPloadStatusEnum.REMOVED) {
         this.emitter.emit("fileDeleted", file)
       }
     }
-    
+
     return res.affected
   }
 
@@ -224,25 +224,28 @@ export class FileUploadService {
       return;
     }
     this.logger.debug(`File found: ${file.objectKey}, id: ${file.id}`);
-
-    const fileStream = await this.getFileStream(file.id);
-    const signature = await this.cosignSignatureService.signFile(fileStream);
-    this.logger.log(`File signed: ${file.objectKey}, signature: ${signature.toString()}`);
-    await this.uploadRepo.update({ id: file.id }, { signature: signature.toString() });
-    this.logger.debug(`File signature saved to DB: ${file.objectKey}`);
+    try {
+      const fileStream = await this.getFileStream(file.id);
+      const signature = await this.cosignSignatureService.signFile(fileStream)
+      this.logger.log(`File signed: ${file.objectKey}, signature: ${signature.toString()}`);
+      await this.uploadRepo.update({ id: file.id }, { signature: signature.toString() });
+      this.logger.debug(`File signature saved to DB: ${file.objectKey}`);
+    } catch (error) {
+      this.logger.error(`Error signing file: ${file.objectKey}, error: ${error}`);
+    }
   }
 
 
 
   // TODO sync deleted files
-  private async syncDB(){
+  private async syncDB() {
     this.logger.log('Syncing DB with Minio');
     await this.syncUploadedFiles();
 
     this.logger.log('DB Sync finished');
   }
 
-  
+
 
   private async syncUploadedFiles() {
     this.logger.log('Syncing uploaded files');
@@ -285,7 +288,7 @@ export class FileUploadService {
               this.logger.error(`Error getting object stat: ${file.objectKey}, ${err}`);
               return undefined;
             })
-        ));
+          ));
 
         const filesToUpdate = batch.map((file, index) => {
           const stats = filesStats[index];
@@ -305,8 +308,8 @@ export class FileUploadService {
           this.logger.debug(`Updating files: ${filesToUpdate.map(file => file.objectKey)}`);
           Promise.all(filesToUpdate.map(file => this.updateUploadFile(file))).catch(err => {
             this.logger.error(`Error updating files: ${err}`)
-            });
-  
+          });
+
         }
       }
 
@@ -321,7 +324,7 @@ export class FileUploadService {
       return;
     }
     this.syncDB();
-    return this.listenToObjectsEvents().catch(() => {});
+    return this.listenToObjectsEvents().catch(() => { });
   }
-  
+
 }
