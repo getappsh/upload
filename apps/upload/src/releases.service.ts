@@ -70,10 +70,10 @@ export class ReleaseService {
       throw new NotFoundException('Some dependencies do not exist');
     }
 
-    const conflictedDependencies = dependencyEntities.filter(dep => dep.project.id === release.projectId).map(dep => dep.version);
+    const conflictedDependencies = dependencyEntities.filter(dep => dep.project.id === release.projectId && dep.version === release.version).map(dep => dep.version);
 
     if (conflictedDependencies.length > 0) {
-      throw new ConflictException(`Release ${release.version} cannot depend on a release (${conflictedDependencies.join(', ')}) from the same project.`);
+      throw new ConflictException(`Release ${release.version} cannot depend on itself.`);
     }
     return dependencyEntities
   }
@@ -247,6 +247,7 @@ export class ReleaseService {
       this.fileUploadService.deleteItemRow(artifact.fileUpload.id)
         .catch(err => this.logger.error(`Error deleting file upload row from the db: ${artifact.fileUpload.id}, error: ${err}`));
     }else {
+      await this.onFileDelete(artifact.fileUpload);
       await this.artifactRepo.delete({ id: params.artifactId })
     }
 
