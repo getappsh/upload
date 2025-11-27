@@ -196,7 +196,7 @@ export class FileUploadService {
       return 0;
     }
 
-    if (file.status === FileUPloadStatusEnum.UPLOADED) {
+    if (file.status === FileUPloadStatusEnum.UPLOADED && this.configService.get('COSIGN_DO_SIGN_FILES') === 'true') {
       this.signFile(file.objectKey).catch(err => {
         this.logger.error(`Error signing file: ${file.objectKey}, error: ${err}`);
       });
