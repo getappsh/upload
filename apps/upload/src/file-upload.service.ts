@@ -9,6 +9,7 @@ import { TimeoutRepeatTask } from "@app/common/safe-cron/timeout-repeated-task.d
 import stream from 'stream';
 import { EventEmitter } from 'eventemitter3';
 import { CosignSignatureService } from "@app/common/AWS/cosign-signature.service";
+import { NotificationPoller } from "minio";
 
 
 @Injectable()
@@ -18,6 +19,7 @@ export class FileUploadService {
   private readonly logger = new Logger(FileUploadService.name);
   private readonly bucketName = this.configService.get('BUCKET_NAME');
   private emitter: EventEmitter = new EventEmitter();
+  private poller: NotificationPoller = null;
 
   constructor(
     private readonly configService: ConfigService,
@@ -121,52 +123,53 @@ export class FileUploadService {
     return `${FileUploadService.OBJECT_PREFIX}${dto.userId}/${sanitizedFileName}`;
   }
 
-  private async listenToObjectsEvents(): Promise<void> {
-    return new Promise((resolve, reject) => {
+  private listenToObjectsEvents(): void {
+    // Stop previous poller if it exists
+    if (this.poller) {
+      this.logger.debug('Stopping previous poller');
+      this.poller.stop();
+    }
 
-      this.logger.log(`Listening to objects events in bucket: ${this.bucketName}`);
-      const poller = this.minioClient.listenBucketNotifications(this.bucketName, FileUploadService.OBJECT_PREFIX, '', ['s3:ObjectCreated:*', 's3:ObjectRemoved:*']);
+    this.logger.log(`Listening to objects events in bucket: ${this.bucketName}`);
+    this.poller = this.minioClient.listenBucketNotifications(this.bucketName, FileUploadService.OBJECT_PREFIX, '', ['s3:ObjectCreated:*', 's3:ObjectRemoved:*']);
 
-      poller.on('notification', async (record) => {
-        try {
-          const eventName = record?.eventName;
-          const objectKey = record?.s3?.object?.key;
-          this.logger.log(`Received event: ${eventName}, for object: ${objectKey}`);
+    this.poller.on('notification', async (record) => {
+      try {
+        const eventName = record?.eventName;
+        const objectKey = record?.s3?.object?.key;
+        this.logger.log(`Received event: ${eventName}, for object: ${objectKey}`);
 
-          if (eventName.startsWith('s3:ObjectCreated:')) {
-            this.logger.debug(`Object created: ${JSON.stringify(record)}`);
+        if (eventName.startsWith('s3:ObjectCreated:')) {
+          this.logger.debug(`Object created: ${JSON.stringify(record)}`);
 
-            const file = new UpdateFileUploadDto();
-            file.objectKey = objectKey;
-            file.status = FileUPloadStatusEnum.UPLOADED;
-            file.size = record?.s3?.object?.size;
-            file.contentType = record?.s3?.object?.contentType;
-            file.uploadAt = record?.eventTime;
+          const file = new UpdateFileUploadDto();
+          file.objectKey = objectKey;
+          file.status = FileUPloadStatusEnum.UPLOADED;
+          file.size = record?.s3?.object?.size;
+          file.contentType = record?.s3?.object?.contentType;
+          file.uploadAt = record?.eventTime;
 
-            await this.updateUploadFile(file);
+          await this.updateUploadFile(file);
 
 
-          } else if (eventName.startsWith('s3:ObjectRemoved:')) {
-            this.logger.debug(`Object removed: ${JSON.stringify(record)}`);
+        } else if (eventName.startsWith('s3:ObjectRemoved:')) {
+          this.logger.debug(`Object removed: ${JSON.stringify(record)}`);
 
-            const file = new UpdateFileUploadDto();
-            file.objectKey = objectKey;
-            file.status = FileUPloadStatusEnum.REMOVED;
+          const file = new UpdateFileUploadDto();
+          file.objectKey = objectKey;
+          file.status = FileUPloadStatusEnum.REMOVED;
 
-            await this.updateUploadFile(file);
-          }
-        } catch (err) {
-          return reject(err)
+          await this.updateUploadFile(file);
         }
-      })
-
-      poller.on('error', error => {
-        this.logger.error(`Error listening to bucket notifications: ${error}`);
-        poller.stop();
-        reject(error);
-      });
+      } catch (err) {
+        this.logger.error(`Error processing notification: ${err}`);
+      }
     });
 
+    this.poller.on('error', error => {
+      this.logger.error(`Error listening to bucket notifications: ${error}`);
+      this.poller.stop();
+    });
   }
 
   async removeFile(id: number) {
@@ -327,9 +330,7 @@ export class FileUploadService {
       return;
     }
     this.syncDB();
-    return this.listenToObjectsEvents().catch((err) => {
-      this.logger.error(`Error in Minio events listener: ${err}`);
-    });
+    this.listenToObjectsEvents();
   }
 
 }
