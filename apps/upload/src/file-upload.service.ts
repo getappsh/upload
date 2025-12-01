@@ -127,33 +127,36 @@ export class FileUploadService {
       this.logger.log(`Listening to objects events in bucket: ${this.bucketName}`);
       const poller = this.minioClient.listenBucketNotifications(this.bucketName, FileUploadService.OBJECT_PREFIX, '', ['s3:ObjectCreated:*', 's3:ObjectRemoved:*']);
 
-      poller.on('notification', record => {
-        const eventName = record?.eventName;
-        const objectKey = record?.s3?.object?.key;
-        this.logger.log(`Received event: ${eventName}, for object: ${objectKey}`);
+      poller.on('notification', async (record) => {
+        try {
+          const eventName = record?.eventName;
+          const objectKey = record?.s3?.object?.key;
+          this.logger.log(`Received event: ${eventName}, for object: ${objectKey}`);
 
-        if (eventName.startsWith('s3:ObjectCreated:')) {
-          this.logger.debug(`Object created: ${JSON.stringify(record)}`);
+          if (eventName.startsWith('s3:ObjectCreated:')) {
+            this.logger.debug(`Object created: ${JSON.stringify(record)}`);
 
-          const file = new UpdateFileUploadDto();
-          file.objectKey = objectKey;
-          file.status = FileUPloadStatusEnum.UPLOADED;
-          file.size = record?.s3?.object?.size;
-          file.contentType = record?.s3?.object?.contentType;
-          file.uploadAt = record?.eventTime;
+            const file = new UpdateFileUploadDto();
+            file.objectKey = objectKey;
+            file.status = FileUPloadStatusEnum.UPLOADED;
+            file.size = record?.s3?.object?.size;
+            file.contentType = record?.s3?.object?.contentType;
+            file.uploadAt = record?.eventTime;
 
-          this.updateUploadFile(file);
+            await this.updateUploadFile(file);
 
 
-        } else if (eventName.startsWith('s3:ObjectRemoved:')) {
-          this.logger.debug(`Object removed: ${JSON.stringify(record)}`);
+          } else if (eventName.startsWith('s3:ObjectRemoved:')) {
+            this.logger.debug(`Object removed: ${JSON.stringify(record)}`);
 
-          const file = new UpdateFileUploadDto();
-          file.objectKey = objectKey;
-          file.status = FileUPloadStatusEnum.REMOVED;
+            const file = new UpdateFileUploadDto();
+            file.objectKey = objectKey;
+            file.status = FileUPloadStatusEnum.REMOVED;
 
-          this.updateUploadFile(file);
-
+            await this.updateUploadFile(file);
+          }
+        } catch (err) {
+          return reject(err)
         }
       })
 
@@ -324,7 +327,9 @@ export class FileUploadService {
       return;
     }
     this.syncDB();
-    return this.listenToObjectsEvents().catch(() => { });
+    return this.listenToObjectsEvents().catch((err) => {
+      this.logger.error(`Error in Minio events listener: ${err}`);
+    });
   }
 
 }
