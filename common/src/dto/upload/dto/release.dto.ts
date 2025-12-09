@@ -176,6 +176,9 @@ export class ComponentV2Dto {
   @ApiProperty({ required: false })
   releasedAt?: Date
 
+  @ApiProperty({ required: false, type: ComponentV2Dto, isArray: true })
+  dependencies?: ComponentV2Dto[]
+
   static fromEntity(release: ReleaseEntity): ComponentV2Dto {
     const dto = new ComponentV2Dto();
     dto.version = release.version;
