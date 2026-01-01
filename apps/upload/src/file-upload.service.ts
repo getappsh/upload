@@ -203,6 +203,16 @@ export class FileUploadService {
       return 0;
     }
 
+    // Calculate SHA256 when file is uploaded if not already present
+    if (file.status === FileUPloadStatusEnum.UPLOADED) {
+      const existingFile = await this.getFileByObjectKey(file.objectKey);
+      if (!existingFile.sha256) {
+        this.calculateAndSaveSha256(file.objectKey).catch(err => {
+          this.logger.error(`Error calculating SHA256: ${file.objectKey}, error: ${err}`);
+        });
+      }
+    }
+
     if (file.status === FileUPloadStatusEnum.UPLOADED && this.configService.get('COSIGN_DO_SIGN_FILES') === 'true') {
       this.signFile(file.objectKey).catch(err => {
         this.logger.error(`Error signing file: ${file.objectKey}, error: ${err}`);
@@ -221,6 +231,37 @@ export class FileUploadService {
     }
 
     return res.affected
+  }
+
+  private async calculateAndSaveSha256(objectKey: string): Promise<void> {
+    this.logger.log(`Calculating SHA256 for objectKey: ${objectKey}`);
+    try {
+      const file = await this.getFileByObjectKey(objectKey);
+      const sha256 = await this.calculateSha256FromBucket(this.bucketName, objectKey);
+      this.logger.log(`SHA256 calculated for ${objectKey}: ${sha256}`);
+      await this.uploadRepo.update({ id: file.id }, { sha256 });
+    } catch (error) {
+      this.logger.error(`Error calculating SHA256 for ${objectKey}: ${error}`);
+    }
+  }
+
+  /**
+   * Calculate SHA256 hash from a file in the bucket
+   * @param bucketName - The bucket name
+   * @param objectKey - The object key
+   * @returns The SHA256 hash as a hex string
+   */
+  async calculateSha256FromBucket(bucketName: string, objectKey: string): Promise<string> {
+    const stream = await this.minioClient.getObject(bucketName, objectKey);
+    const hash = require('crypto').createHash('sha256');
+    
+    await new Promise((resolve, reject) => {
+      stream.on('data', (chunk) => hash.update(chunk));
+      stream.on('end', resolve);
+      stream.on('error', reject);
+    });
+    
+    return hash.digest('hex');
   }
 
   private async signFile(objectKey: string): Promise<void> {

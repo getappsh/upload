@@ -294,6 +294,15 @@ export class ReleaseService {
     })
     if (release) {
       this.logger.debug(`onFileCreate: File is part of release: ${release.version}, of project: ${release.project.id}`);
+      
+      // Sync sha256 from file_upload to release_artifact if present
+      if (fileUpload.sha256) {
+        await this.artifactRepo.update(
+          { fileUpload: { objectKey: fileUpload.objectKey } },
+          { sha256: fileUpload.sha256 }
+        );
+      }
+      
       this.refreshReleaseState({ projectId: release.project.id, version: release.version } as ReleaseParams);
     }
   }
@@ -306,8 +315,15 @@ export class ReleaseService {
       relations: { project: true }
     })
     if (release) {
-      this.logger.debug(`onFileDelete: File is part of release: ${release.version}, of project: ${release.project.id}`);
-      this.refreshReleaseState({ projectId: release.project.id, version: release.version } as ReleaseParams);
+      this.logger.debug(`onFileDelete: File is part of release: ${release.version}, of project: ${release.project.id}`);      
+      // Sync sha256 from file_upload to release_artifact if present
+      if (fileUpload.sha256) {
+        await this.artifactRepo.update(
+          { fileUpload: { objectKey: fileUpload.objectKey } },
+          { sha256: fileUpload.sha256 }
+        );
+      }
+            this.refreshReleaseState({ projectId: release.project.id, version: release.version } as ReleaseParams);
     }
   }
 
@@ -535,7 +551,34 @@ export class ReleaseService {
         artifactDto.name = artifact.fileUpload.fileName;
         artifactDto.platform = artifact.metadata?.platform || 'unknown';
         artifactDto.size = artifact.fileUpload.size || 0;
-        artifactDto.sha256 = artifact.fileUpload.signature || '';
+        
+        // Use sha256 field, calculate from bucket if missing
+        if (artifact.fileUpload.sha256) {
+          artifactDto.sha256 = artifact.fileUpload.sha256;
+        } else if (artifact.sha256) {
+          // Use sha256 from release_artifact if available
+          artifactDto.sha256 = artifact.sha256;
+        } else {
+          this.logger.warn(`SHA256 missing for artifact ${artifact.fileUpload.fileName}, calculating from bucket`);
+          try {
+            artifactDto.sha256 = await this.fileUploadService.calculateSha256FromBucket(bucketName, artifact.fileUpload.objectKey);
+            // Save it to both DB tables for future use
+            await Promise.all([
+              this.fileUploadService['uploadRepo'].update(
+                { id: artifact.fileUpload.id },
+                { sha256: artifactDto.sha256 }
+              ),
+              this.artifactRepo.update(
+                { id: artifact.id },
+                { sha256: artifactDto.sha256 }
+              )
+            ]);
+          } catch (error) {
+            this.logger.error(`Failed to calculate SHA256 for ${artifact.fileUpload.fileName}: ${error.message}`);
+            artifactDto.sha256 = '';
+          }
+        }
+        
         artifactDto.downloadUrl = await this.minioClient.generatePresignedDownloadUrl(bucketName, artifact.fileUpload.objectKey);
         artifactDto.metadata = artifact.metadata || {};
         exportDto.artifacts.push(artifactDto);
@@ -706,8 +749,9 @@ export class ReleaseService {
     await this.artifactRepo.save(artifactEntity);
 
     try {
-      // Update status to UPLOADING
+      // Update status to UPLOADING with 0% progress
       savedFileUpload.status = FileUPloadStatusEnum.UPLOADING;
+      savedFileUpload.progress = 0;
       await this.fileUploadService['uploadRepo'].save(savedFileUpload);
 
       // Download file from URL
@@ -717,12 +761,25 @@ export class ReleaseService {
         timeout: 300000, // 5 minutes timeout
       });
 
+      const totalSize = parseInt(response.headers['content-length'] || '0', 10);
+      let downloadedSize = 0;
+
       // Create a pass-through stream to calculate checksum while uploading
       const passThroughStream = new PassThrough();
       const hash = crypto.createHash('sha256');
 
-      passThroughStream.on('data', (chunk) => {
+      passThroughStream.on('data', async (chunk) => {
         hash.update(chunk);
+        downloadedSize += chunk.length;
+        
+        // Update progress every 5% or for small files, every chunk
+        if (totalSize > 0) {
+          const progress = Math.floor((downloadedSize / totalSize) * 100);
+          if (progress % 5 === 0 || totalSize < 1024 * 1024) { // Update every 5% or if file < 1MB
+            savedFileUpload.progress = progress;
+            await this.fileUploadService['uploadRepo'].save(savedFileUpload);
+          }
+        }
       });
 
       // Pipe the response to the pass-through stream
@@ -759,8 +816,13 @@ export class ReleaseService {
       savedFileUpload.status = FileUPloadStatusEnum.UPLOADED;
       savedFileUpload.size = stats?.size || artifact.size;
       savedFileUpload.uploadAt = new Date();
-      savedFileUpload.signature = calculatedChecksum;
+      savedFileUpload.sha256 = calculatedChecksum;
+      savedFileUpload.progress = 100;
       await this.fileUploadService['uploadRepo'].save(savedFileUpload);
+
+      // Update release artifact with sha256
+      artifactEntity.sha256 = calculatedChecksum;
+      await this.artifactRepo.save(artifactEntity);
 
       this.logger.log(`Successfully imported artifact: ${artifact.name}`);
 
