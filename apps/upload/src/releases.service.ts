@@ -555,6 +555,13 @@ export class ReleaseService {
         // Use sha256 field, calculate from bucket if missing
         if (artifact.fileUpload.sha256) {
           artifactDto.sha256 = artifact.fileUpload.sha256;
+          // Save to release_artifact if not already there
+          if (!artifact.sha256) {
+            await this.artifactRepo.update(
+              { id: artifact.id },
+              { sha256: artifactDto.sha256 }
+            );
+          }
         } else if (artifact.sha256) {
           // Use sha256 from release_artifact if available
           artifactDto.sha256 = artifact.sha256;

@@ -173,8 +173,7 @@ export class UploadController {
   @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.IMPORT_RELEASE)
   importRelease(@RpcPayload() dto: any) {
-    const userId = dto.userId || 'import-user';
-    return this.releasesService.importRelease(dto, userId);
+    return this.releasesService.importRelease(dto);
   }
 
   @EventPattern(UploadTopicsEmit.PROJECT_REGULATION_CHANGED)
