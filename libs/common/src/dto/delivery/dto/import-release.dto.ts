@@ -94,6 +94,10 @@ export class ImportReleaseDto {
   @IsNotEmpty()
   project: string;
 
+  @ApiProperty({ description: 'Project ID (set by API layer)', required: false })
+  @IsOptional()
+  projectIdentifier?: number | string;
+
   @ApiProperty({ description: 'Release status', required: false })
   @IsString()
   @IsOptional()

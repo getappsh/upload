@@ -16,6 +16,7 @@ import { ConfigService } from "@nestjs/config";
 import { HttpService } from "@nestjs/axios";
 import * as crypto from 'crypto';
 import { PassThrough } from "stream";
+import { ClsService } from 'nestjs-cls';
 
 
 @Injectable()
@@ -33,6 +34,7 @@ export class ReleaseService {
     private readonly minioClient: MinioClientService,
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
+    private readonly cls: ClsService,
   ) {
 
     this.fileUploadService.onFileCreate(file => this.onFileCreate(file));
@@ -560,37 +562,48 @@ export class ReleaseService {
     return exportDto;
   }
 
-  async importRelease(dto: ImportReleaseDto, userId: string): Promise<ImportReleaseResponseDto> {
-    this.logger.log(`Importing release: ${dto.name}, version: ${dto.version}, project: ${dto.project}`);
+  async importRelease(dto: ImportReleaseDto): Promise<ImportReleaseResponseDto> {
+    this.logger.log(`Importing release: ${dto.name}, version: ${dto.version}, project: ${dto.projectIdentifier}`);
 
-    // Find or validate project
-    const project = await this.releaseRepo.manager.getRepository(ProjectEntity).findOneBy({ name: dto.project });
-    if (!project) {
-      throw new NotFoundException(`Project not found: ${dto.project}`);
+    // Get user from context
+    const user = this.cls.get('user');
+    const userId = user?.email || user?.sub || 'system';
+    this.logger.debug(`Import initiated by user: ${userId}`);
+
+    // Convert projectIdentifier to projectId if it's a string
+    let projectId: number;
+    if (typeof dto.projectIdentifier !== 'number') {
+      const project = await this.releaseRepo.manager.getRepository(ProjectEntity).findOneBy({ name: dto.projectIdentifier });
+      if (!project) {
+        throw new NotFoundException(`Project not found: ${dto.projectIdentifier}`);
+      }
+      projectId = project.id;
+    } else {
+      projectId = dto.projectIdentifier;
     }
 
-    // Check if release already exists
-    const existingRelease = await this.releaseRepo.findOneBy({ project: { id: project.id }, version: dto.version });
+    // Check if release already exists, or create new one
+    const existingRelease = await this.releaseRepo.findOneBy({ project: { id: projectId }, version: dto.version });
     if (existingRelease) {
-      throw new ConflictException(`Release version ${dto.version} already exists for project ${dto.project}`);
+      throw new ConflictException(`Release version ${dto.version} already exists for project ${projectId}`);
     }
 
     // Create release entity
     const releaseEntity = this.releaseRepo.create();
-    releaseEntity.project = project;
+    releaseEntity.project = { id: projectId } as unknown as ProjectEntity;
     releaseEntity.version = dto.version;
     releaseEntity.name = dto.name;
     releaseEntity.releaseNotes = dto.releaseNotes || '';
     releaseEntity.metadata = dto.metadata || {};
     releaseEntity.status = ReleaseStatusEnum.DRAFT; // Always create as draft
     releaseEntity.createdBy = dto.author;
-    releaseEntity.requiredRegulationsCount = await this.regulationRepo.count({ where: { project: { id: project.id } } });
+    releaseEntity.requiredRegulationsCount = await this.regulationRepo.count({ where: { project: { id: projectId } } });
 
     // Handle dependencies
     if (dto.dependencies && dto.dependencies.length > 0) {
       const dependencyCatalogIds = dto.dependencies.map(d => d.catalogId);
       releaseEntity.dependencies = await this.getAndValidateDependenciesForRelease(
-        { projectId: project.id, version: dto.version },
+        { projectId: projectId, version: dto.version },
         dependencyCatalogIds
       );
     }
@@ -639,7 +652,7 @@ export class ReleaseService {
       }
     }
 
-    await this.refreshReleaseState({ projectId: project.id, version: dto.version, projectIdentifier: project.id });
+    await this.refreshReleaseState({ projectId: projectId, version: dto.version, projectIdentifier: projectId });
 
     const response = new ImportReleaseResponseDto();
     response.catalogId = savedRelease.catalogId;
@@ -664,7 +677,8 @@ export class ReleaseService {
     this.logger.log(`Importing artifact: ${artifact.name} from URL: ${artifact.downloadUrl}`);
 
     // Create file upload entity
-    const objectKey = `${release.project.id}/${release.version}/${artifact.name}`;
+    const projectId = typeof release.project === 'object' && 'id' in release.project ? release.project.id : release.project;
+    const objectKey = `${projectId}/${release.version}/${artifact.name}`;
     const fileUpload = new FileUploadEntity();
     fileUpload.fileName = artifact.name;
     fileUpload.objectKey = objectKey;
