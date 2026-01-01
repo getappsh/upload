@@ -535,7 +535,7 @@ export class ReleaseService {
         artifactDto.name = artifact.fileUpload.fileName;
         artifactDto.platform = artifact.metadata?.platform || 'unknown';
         artifactDto.size = artifact.fileUpload.size || 0;
-        artifactDto.checksum = artifact.fileUpload.signature || '';
+        artifactDto.sha256 = artifact.fileUpload.signature || '';
         artifactDto.downloadUrl = await this.minioClient.generatePresignedDownloadUrl(bucketName, artifact.fileUpload.objectKey);
         artifactDto.metadata = artifact.metadata || {};
         exportDto.artifacts.push(artifactDto);
@@ -612,24 +612,9 @@ export class ReleaseService {
     const savedRelease = await this.releaseRepo.save(releaseEntity);
     this.logger.log(`Created release with catalogId: ${savedRelease.catalogId}`);
 
-    const warnings: ArtifactWarningDto[] = [];
     const bucketName = this.configService.get('BUCKET_NAME');
 
-    // Import file artifacts
-    for (const artifact of dto.artifacts || []) {
-      try {
-        await this.importArtifact(savedRelease, artifact, userId, bucketName, warnings);
-      } catch (error) {
-        this.logger.error(`Error importing artifact ${artifact.name}: ${error.message}`);
-        warnings.push({
-          artifactName: artifact.name,
-          message: `Failed to import artifact: ${error.message}`,
-          expectedChecksum: artifact.checksum,
-        });
-      }
-    }
-
-    // Import docker images
+    // Import docker images synchronously (quick)
     for (const dockerImage of dto.dockerImages || []) {
       try {
         const artifactEntity = new ReleaseArtifactEntity();
@@ -644,12 +629,14 @@ export class ReleaseService {
         this.logger.log(`Imported docker image: ${dockerImage.name}`);
       } catch (error) {
         this.logger.error(`Error importing docker image ${dockerImage.name}: ${error.message}`);
-        warnings.push({
-          artifactName: dockerImage.name,
-          message: `Failed to import docker image: ${error.message}`,
-          expectedChecksum: '',
-        });
       }
+    }
+
+    // Start background file artifact imports (don't await)
+    if (dto.artifacts && dto.artifacts.length > 0) {
+      this.importArtifactsInBackground(savedRelease, dto.artifacts, userId, bucketName).catch(error => {
+        this.logger.error(`Background artifact import failed: ${error.message}`);
+      });
     }
 
     await this.refreshReleaseState({ projectId: projectId, version: dto.version, projectIdentifier: projectId });
@@ -659,24 +646,44 @@ export class ReleaseService {
     response.name = savedRelease.name;
     response.version = savedRelease.version;
     response.status = savedRelease.status;
-    response.message = 'Release imported successfully';
-    if (warnings.length > 0) {
-      response.warnings = warnings;
-    }
+    response.message = dto.artifacts && dto.artifacts.length > 0 
+      ? 'Release created successfully. File artifacts are being uploaded in the background.'
+      : 'Release imported successfully';
 
     return response;
+  }
+
+  /**
+   * Import artifacts in the background without blocking the main request
+   */
+  private async importArtifactsInBackground(
+    release: ReleaseEntity,
+    artifacts: any[],
+    userId: string,
+    bucketName: string
+  ): Promise<void> {
+    this.logger.log(`Starting background import of ${artifacts.length} artifacts for release ${release.catalogId}`);
+    
+    for (const artifact of artifacts) {
+      try {
+        await this.importArtifact(release, artifact, userId, bucketName);
+      } catch (error) {
+        this.logger.error(`Error importing artifact ${artifact.name} in background: ${error.message}`);
+      }
+    }
+    
+    this.logger.log(`Completed background import for release ${release.catalogId}`);
   }
 
   private async importArtifact(
     release: ReleaseEntity,
     artifact: any,
     userId: string,
-    bucketName: string,
-    warnings: ArtifactWarningDto[]
+    bucketName: string
   ): Promise<void> {
     this.logger.log(`Importing artifact: ${artifact.name} from URL: ${artifact.downloadUrl}`);
 
-    // Create file upload entity
+    // Create file upload entity with PENDING status
     const projectId = typeof release.project === 'object' && 'id' in release.project ? release.project.id : release.project;
     const objectKey = `${projectId}/${release.version}/${artifact.name}`;
     const fileUpload = new FileUploadEntity();
@@ -688,7 +695,21 @@ export class ReleaseService {
 
     const savedFileUpload = await this.fileUploadService['uploadRepo'].save(fileUpload);
 
+    // Create release artifact immediately (before file upload)
+    const artifactEntity = new ReleaseArtifactEntity();
+    artifactEntity.type = ArtifactTypeEnum.FILE;
+    artifactEntity.artifactName = artifact.name;
+    artifactEntity.metadata = artifact.metadata || { platform: artifact.platform };
+    artifactEntity.release = release;
+    artifactEntity.fileUpload = savedFileUpload;
+    artifactEntity.isInstallationFile = true;
+    await this.artifactRepo.save(artifactEntity);
+
     try {
+      // Update status to UPLOADING
+      savedFileUpload.status = FileUPloadStatusEnum.UPLOADING;
+      await this.fileUploadService['uploadRepo'].save(savedFileUpload);
+
       // Download file from URL
       this.logger.log(`Downloading artifact from URL: ${artifact.downloadUrl}`);
       const response = await this.httpService.axiosRef.get(artifact.downloadUrl, {
@@ -708,7 +729,7 @@ export class ReleaseService {
       response.data.pipe(passThroughStream);
 
       // Upload to MinIO
-      const uploadStream = await this.minioClient['client'].putObject(
+      await this.minioClient['client'].putObject(
         bucketName,
         objectKey,
         passThroughStream
@@ -720,48 +741,35 @@ export class ReleaseService {
       const calculatedChecksum = hash.digest('hex');
       
       // Validate checksum
-      if (artifact.checksum && calculatedChecksum !== artifact.checksum) {
-        this.logger.warn(`Checksum mismatch for artifact ${artifact.name}. Expected: ${artifact.checksum}, Got: ${calculatedChecksum}`);
-        warnings.push({
-          artifactName: artifact.name,
-          message: 'Checksum mismatch - file uploaded but may be corrupted',
-          expectedChecksum: artifact.checksum,
-          actualChecksum: calculatedChecksum,
-        });
+      if (artifact.sha256 && calculatedChecksum !== artifact.sha256) {
+        this.logger.warn(`Checksum mismatch for artifact ${artifact.name}. Expected: ${artifact.sha256}, Got: ${calculatedChecksum}`);
         
-        // Delete the uploaded file
+        // Delete the uploaded file and mark as failed
         await this.minioClient.deleteObjects(bucketName, objectKey);
-        await this.fileUploadService['uploadRepo'].delete(savedFileUpload.id);
-        return;
+        savedFileUpload.status = FileUPloadStatusEnum.REMOVED;
+        await this.fileUploadService['uploadRepo'].save(savedFileUpload);
+        
+        throw new BadRequestException(`Checksum mismatch for artifact ${artifact.name}`);
       }
 
       // Get file stats
       const stats = await this.minioClient.getObjectStat(bucketName, objectKey);
 
-      // Update file upload entity
+      // Update file upload entity to UPLOADED
       savedFileUpload.status = FileUPloadStatusEnum.UPLOADED;
       savedFileUpload.size = stats?.size || artifact.size;
       savedFileUpload.uploadAt = new Date();
       savedFileUpload.signature = calculatedChecksum;
       await this.fileUploadService['uploadRepo'].save(savedFileUpload);
 
-      // Create release artifact
-      const artifactEntity = new ReleaseArtifactEntity();
-      artifactEntity.type = ArtifactTypeEnum.FILE;
-      artifactEntity.artifactName = artifact.name;
-      artifactEntity.metadata = artifact.metadata || { platform: artifact.platform };
-      artifactEntity.release = release;
-      artifactEntity.fileUpload = savedFileUpload;
-      artifactEntity.isInstallationFile = true;
-
-      await this.artifactRepo.save(artifactEntity);
       this.logger.log(`Successfully imported artifact: ${artifact.name}`);
 
     } catch (error) {
       this.logger.error(`Failed to import artifact ${artifact.name}: ${error.message}`);
       
-      // Clean up file upload entity
-      await this.fileUploadService['uploadRepo'].delete(savedFileUpload.id);
+      // Mark upload as failed by setting status to REMOVED
+      savedFileUpload.status = FileUPloadStatusEnum.REMOVED;
+      await this.fileUploadService['uploadRepo'].save(savedFileUpload);
       
       throw new BadRequestException(`Failed to download or upload artifact ${artifact.name}: ${error.message}`);
     }

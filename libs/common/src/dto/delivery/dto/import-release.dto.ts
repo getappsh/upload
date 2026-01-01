@@ -16,10 +16,10 @@ export class ImportArtifactDto {
   @ApiProperty({ description: 'File size in bytes', type: 'integer', format: 'int64' })
   size: number;
 
-  @ApiProperty({ description: 'Checksum for integrity verification' })
+  @ApiProperty({ description: 'SHA256 hash for integrity verification' })
   @IsString()
   @IsNotEmpty()
-  checksum: string;
+  sha256: string;
 
   @ApiProperty({ description: 'Download URL for the artifact (can be external or internal)' })
   @IsString()
@@ -145,11 +145,11 @@ export class ArtifactWarningDto {
   @ApiProperty({ description: 'Warning message' })
   message: string;
 
-  @ApiProperty({ description: 'Expected checksum' })
-  expectedChecksum: string;
+  @ApiProperty({ description: 'Expected SHA256 hash' })
+  expectedSha256: string;
 
-  @ApiProperty({ description: 'Actual checksum', required: false })
-  actualChecksum?: string;
+  @ApiProperty({ description: 'Actual SHA256 hash', required: false })
+  actualSha256?: string;
 }
 
 export class ImportReleaseResponseDto {

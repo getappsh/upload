@@ -16,10 +16,10 @@ export class ExportArtifactDto {
   @ApiProperty({ description: 'File size in bytes', type: 'integer', format: 'int64' })
   size: number;
 
-  @ApiProperty({ description: 'Checksum for integrity verification' })
+  @ApiProperty({ description: 'SHA256 hash for integrity verification' })
   @IsString()
   @IsNotEmpty()
-  checksum: string;
+  sha256: string;
 
   @ApiProperty({ description: 'Download URL for the artifact' })
   @IsString()

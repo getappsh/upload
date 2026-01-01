@@ -149,6 +149,7 @@ export enum AssetTypeEnum {
 export enum FileUPloadStatusEnum {
     UPLOADED = "uploaded",
     PENDING = "pending",
+    UPLOADING = "uploading",
     REMOVED = "removed"
 }
 
