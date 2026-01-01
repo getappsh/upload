@@ -165,6 +165,17 @@ export class UploadController {
     return res
   }
 
+  @MessagePattern(UploadTopics.EXPORT_RELEASE)
+  exportRelease(@RpcPayload() params: ReleaseParams) {
+    return this.releasesService.exportRelease(params);
+  }
+
+  @ValidateProjectAnyAccess()
+  @MessagePattern(UploadTopics.IMPORT_RELEASE)
+  importRelease(@RpcPayload() dto: any) {
+    const userId = dto.userId || 'import-user';
+    return this.releasesService.importRelease(dto, userId);
+  }
 
   @EventPattern(UploadTopicsEmit.PROJECT_REGULATION_CHANGED)
   async onProjectRegulationChanged(@RpcPayload() event: RegulationChangedEvent) {

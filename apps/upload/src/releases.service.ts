@@ -1,6 +1,6 @@
 import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum } from "@app/common/database/entities";
 import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto, ReleaseEventType, ReleaseEventEnum, ReleaseChangedEventDto, GetReleaseArtifactResDto, ReleaseArtifactNameParams, UpdateFilePropertiesDto } from "@app/common/dto/upload";
-import { Inject, Injectable, Logger, NotFoundException, ConflictException } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Not, Repository } from "typeorm";
 import { FileUploadService } from "./file-upload.service";
@@ -10,6 +10,12 @@ import { MinimalReleaseDto, ProjectReleasesChangedEvent, RegulationChangedEvent,
 import { MicroserviceClient, MicroserviceName } from "@app/common/microservice-client";
 import { OfferingTopicsEmit, ProjectManagementTopicsEmit } from "@app/common/microservice-client/topics";
 import { lastValueFrom } from "rxjs";
+import { ExportReleaseDto, ExportArtifactDto, ExportDockerImageDto, ExportDependencyDto, ImportReleaseDto, ImportReleaseResponseDto, ArtifactWarningDto } from "@app/common/dto/delivery";
+import { MinioClientService } from "@app/common/AWS/minio-client.service";
+import { ConfigService } from "@nestjs/config";
+import { HttpService } from "@nestjs/axios";
+import * as crypto from 'crypto';
+import { PassThrough } from "stream";
 
 
 @Injectable()
@@ -24,6 +30,9 @@ export class ReleaseService {
     @Inject(MicroserviceName.OFFERING_SERVICE) private readonly offeringClient: MicroserviceClient,
     private readonly fileUploadService: FileUploadService,
     private readonly regulationService: RegulationStatusService,
+    private readonly minioClient: MinioClientService,
+    private readonly configService: ConfigService,
+    private readonly httpService: HttpService,
   ) {
 
     this.fileUploadService.onFileCreate(file => this.onFileCreate(file));
@@ -485,4 +494,262 @@ export class ReleaseService {
       );
       return affectedRows.affected;
     }
+
+  async exportRelease(params: ReleaseParams): Promise<ExportReleaseDto> {
+    this.logger.log(`Exporting release for project: ${params.projectIdentifier}, version: ${params.version}`);
+    
+    if (typeof params.projectIdentifier !== 'number') {
+      const project = await this.releaseRepo.manager.getRepository(ProjectEntity).findOneBy({ name: params.projectIdentifier });
+      if (!project) {
+        throw new NotFoundException(`Project not found: ${params.projectIdentifier}`);
+      }
+      params.projectId = project.id;
+    }
+
+    const release = await this.getReleaseEntity(params);
+    if (!release) {
+      throw new NotFoundException(`Release not found for project: ${params.projectId}, version: ${params.version}`);
+    }
+
+    const bucketName = this.configService.get('BUCKET_NAME');
+    const exportDto = new ExportReleaseDto();
+    exportDto.name = release.name || '';
+    exportDto.version = release.version;
+    exportDto.tag = `v${release.version}`;
+    exportDto.createdAt = release.createdAt.toISOString();
+    exportDto.project = release.project.name;
+    exportDto.status = release.status;
+    exportDto.releaseNotes = release.releaseNotes || '';
+    exportDto.author = release.createdBy || 'unknown@example.com';
+    exportDto.metadata = release.metadata || {};
+
+    // Export artifacts
+    exportDto.artifacts = [];
+    exportDto.dockerImages = [];
+
+    for (const artifact of release.artifacts || []) {
+      if (artifact.type === ArtifactTypeEnum.FILE && artifact.fileUpload) {
+        const artifactDto = new ExportArtifactDto();
+        artifactDto.name = artifact.fileUpload.fileName;
+        artifactDto.platform = artifact.metadata?.platform || 'unknown';
+        artifactDto.size = artifact.fileUpload.size || 0;
+        artifactDto.checksum = artifact.fileUpload.signature || '';
+        artifactDto.downloadUrl = await this.minioClient.generatePresignedDownloadUrl(bucketName, artifact.fileUpload.objectKey);
+        artifactDto.metadata = artifact.metadata || {};
+        exportDto.artifacts.push(artifactDto);
+      } else if (artifact.type === ArtifactTypeEnum.DOCKER_IMAGE) {
+        const dockerDto = new ExportDockerImageDto();
+        dockerDto.name = artifact.artifactName;
+        dockerDto.imageUrl = artifact.dockerImageUrl;
+        dockerDto.platform = artifact.metadata?.platform || '';
+        dockerDto.metadata = artifact.metadata || {};
+        exportDto.dockerImages.push(dockerDto);
+      }
+    }
+
+    // Export dependencies
+    exportDto.dependencies = [];
+    for (const dependency of release.dependencies || []) {
+      const depDto = new ExportDependencyDto();
+      depDto.catalogId = dependency.catalogId;
+      depDto.name = dependency.name || '';
+      depDto.version = dependency.version;
+      exportDto.dependencies.push(depDto);
+    }
+
+    return exportDto;
+  }
+
+  async importRelease(dto: ImportReleaseDto, userId: string): Promise<ImportReleaseResponseDto> {
+    this.logger.log(`Importing release: ${dto.name}, version: ${dto.version}, project: ${dto.project}`);
+
+    // Find or validate project
+    const project = await this.releaseRepo.manager.getRepository(ProjectEntity).findOneBy({ name: dto.project });
+    if (!project) {
+      throw new NotFoundException(`Project not found: ${dto.project}`);
+    }
+
+    // Check if release already exists
+    const existingRelease = await this.releaseRepo.findOneBy({ project: { id: project.id }, version: dto.version });
+    if (existingRelease) {
+      throw new ConflictException(`Release version ${dto.version} already exists for project ${dto.project}`);
+    }
+
+    // Create release entity
+    const releaseEntity = this.releaseRepo.create();
+    releaseEntity.project = project;
+    releaseEntity.version = dto.version;
+    releaseEntity.name = dto.name;
+    releaseEntity.releaseNotes = dto.releaseNotes || '';
+    releaseEntity.metadata = dto.metadata || {};
+    releaseEntity.status = ReleaseStatusEnum.DRAFT; // Always create as draft
+    releaseEntity.createdBy = dto.author;
+    releaseEntity.requiredRegulationsCount = await this.regulationRepo.count({ where: { project: { id: project.id } } });
+
+    // Handle dependencies
+    if (dto.dependencies && dto.dependencies.length > 0) {
+      const dependencyCatalogIds = dto.dependencies.map(d => d.catalogId);
+      releaseEntity.dependencies = await this.getAndValidateDependenciesForRelease(
+        { projectId: project.id, version: dto.version },
+        dependencyCatalogIds
+      );
+    }
+
+    // Save release
+    const savedRelease = await this.releaseRepo.save(releaseEntity);
+    this.logger.log(`Created release with catalogId: ${savedRelease.catalogId}`);
+
+    const warnings: ArtifactWarningDto[] = [];
+    const bucketName = this.configService.get('BUCKET_NAME');
+
+    // Import file artifacts
+    for (const artifact of dto.artifacts || []) {
+      try {
+        await this.importArtifact(savedRelease, artifact, userId, bucketName, warnings);
+      } catch (error) {
+        this.logger.error(`Error importing artifact ${artifact.name}: ${error.message}`);
+        warnings.push({
+          artifactName: artifact.name,
+          message: `Failed to import artifact: ${error.message}`,
+          expectedChecksum: artifact.checksum,
+        });
+      }
+    }
+
+    // Import docker images
+    for (const dockerImage of dto.dockerImages || []) {
+      try {
+        const artifactEntity = new ReleaseArtifactEntity();
+        artifactEntity.type = ArtifactTypeEnum.DOCKER_IMAGE;
+        artifactEntity.artifactName = dockerImage.name;
+        artifactEntity.dockerImageUrl = dockerImage.imageUrl;
+        artifactEntity.metadata = dockerImage.metadata || {};
+        artifactEntity.release = savedRelease;
+        artifactEntity.isInstallationFile = true;
+
+        await this.artifactRepo.save(artifactEntity);
+        this.logger.log(`Imported docker image: ${dockerImage.name}`);
+      } catch (error) {
+        this.logger.error(`Error importing docker image ${dockerImage.name}: ${error.message}`);
+        warnings.push({
+          artifactName: dockerImage.name,
+          message: `Failed to import docker image: ${error.message}`,
+          expectedChecksum: '',
+        });
+      }
+    }
+
+    await this.refreshReleaseState({ projectId: project.id, version: dto.version, projectIdentifier: project.id });
+
+    const response = new ImportReleaseResponseDto();
+    response.catalogId = savedRelease.catalogId;
+    response.name = savedRelease.name;
+    response.version = savedRelease.version;
+    response.status = savedRelease.status;
+    response.message = 'Release imported successfully';
+    if (warnings.length > 0) {
+      response.warnings = warnings;
+    }
+
+    return response;
+  }
+
+  private async importArtifact(
+    release: ReleaseEntity,
+    artifact: any,
+    userId: string,
+    bucketName: string,
+    warnings: ArtifactWarningDto[]
+  ): Promise<void> {
+    this.logger.log(`Importing artifact: ${artifact.name} from URL: ${artifact.downloadUrl}`);
+
+    // Create file upload entity
+    const objectKey = `${release.project.id}/${release.version}/${artifact.name}`;
+    const fileUpload = new FileUploadEntity();
+    fileUpload.fileName = artifact.name;
+    fileUpload.objectKey = objectKey;
+    fileUpload.userId = userId;
+    fileUpload.bucketName = bucketName;
+    fileUpload.status = FileUPloadStatusEnum.PENDING;
+
+    const savedFileUpload = await this.fileUploadService['uploadRepo'].save(fileUpload);
+
+    try {
+      // Download file from URL
+      this.logger.log(`Downloading artifact from URL: ${artifact.downloadUrl}`);
+      const response = await this.httpService.axiosRef.get(artifact.downloadUrl, {
+        responseType: 'stream',
+        timeout: 300000, // 5 minutes timeout
+      });
+
+      // Create a pass-through stream to calculate checksum while uploading
+      const passThroughStream = new PassThrough();
+      const hash = crypto.createHash('sha256');
+
+      passThroughStream.on('data', (chunk) => {
+        hash.update(chunk);
+      });
+
+      // Pipe the response to the pass-through stream
+      response.data.pipe(passThroughStream);
+
+      // Upload to MinIO
+      const uploadStream = await this.minioClient['client'].putObject(
+        bucketName,
+        objectKey,
+        passThroughStream
+      );
+
+      this.logger.log(`Uploaded artifact ${artifact.name} to bucket`);
+
+      // Calculate final checksum
+      const calculatedChecksum = hash.digest('hex');
+      
+      // Validate checksum
+      if (artifact.checksum && calculatedChecksum !== artifact.checksum) {
+        this.logger.warn(`Checksum mismatch for artifact ${artifact.name}. Expected: ${artifact.checksum}, Got: ${calculatedChecksum}`);
+        warnings.push({
+          artifactName: artifact.name,
+          message: 'Checksum mismatch - file uploaded but may be corrupted',
+          expectedChecksum: artifact.checksum,
+          actualChecksum: calculatedChecksum,
+        });
+        
+        // Delete the uploaded file
+        await this.minioClient.deleteObjects(bucketName, objectKey);
+        await this.fileUploadService['uploadRepo'].delete(savedFileUpload.id);
+        return;
+      }
+
+      // Get file stats
+      const stats = await this.minioClient.getObjectStat(bucketName, objectKey);
+
+      // Update file upload entity
+      savedFileUpload.status = FileUPloadStatusEnum.UPLOADED;
+      savedFileUpload.size = stats?.size || artifact.size;
+      savedFileUpload.uploadAt = new Date();
+      savedFileUpload.signature = calculatedChecksum;
+      await this.fileUploadService['uploadRepo'].save(savedFileUpload);
+
+      // Create release artifact
+      const artifactEntity = new ReleaseArtifactEntity();
+      artifactEntity.type = ArtifactTypeEnum.FILE;
+      artifactEntity.artifactName = artifact.name;
+      artifactEntity.metadata = artifact.metadata || { platform: artifact.platform };
+      artifactEntity.release = release;
+      artifactEntity.fileUpload = savedFileUpload;
+      artifactEntity.isInstallationFile = true;
+
+      await this.artifactRepo.save(artifactEntity);
+      this.logger.log(`Successfully imported artifact: ${artifact.name}`);
+
+    } catch (error) {
+      this.logger.error(`Failed to import artifact ${artifact.name}: ${error.message}`);
+      
+      // Clean up file upload entity
+      await this.fileUploadService['uploadRepo'].delete(savedFileUpload.id);
+      
+      throw new BadRequestException(`Failed to download or upload artifact ${artifact.name}: ${error.message}`);
+    }
+  }
 }

@@ -5,6 +5,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { HttpModule } from '@nestjs/axios';
 import { DockerDownloadService } from './docker-download.service';
 import { UploadController } from './upload.controller';
 import { UploadService } from './upload.service';
@@ -32,6 +33,7 @@ import { CosignSignatureService } from '@app/common/AWS/cosign-signature.service
     }),
     ApmModule,
     DatabaseModule,
+    HttpModule,
     JwtModule.registerAsync({
       useClass: UploadJwtConfigService
     }),
