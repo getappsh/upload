@@ -48,6 +48,8 @@ export class SetReleaseArtifactDto {
   @ApiProperty({ required: false})
   arguments: string
 
+  
+
 }
 
 
@@ -119,6 +121,11 @@ export class ReleaseArtifactDto {
   @ApiProperty({ required: false, type: 'integer', format: 'int64' })
   size?: number
 
+  @ApiProperty({ required: false, type: 'number', description: 'Upload/download progress percentage (0-100)' })
+  @IsOptional()
+  @IsNumber()
+  progress?: number
+
 
   static fromEntity(artifact: ReleaseArtifactEntity): ReleaseArtifactDto {
     const dto = new ReleaseArtifactDto();
@@ -131,6 +138,7 @@ export class ReleaseArtifactDto {
     dto.uploadId = artifact.fileUpload ? artifact.fileUpload.id : undefined;
     dto.status = artifact?.fileUpload?.status
     dto.size = artifact?.fileUpload?.size
+    dto.progress = artifact?.fileUpload?.progress
     dto.arguments = artifact?.arguments;
     dto.isExecutable = artifact?.isExecutable;
 

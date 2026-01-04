@@ -203,6 +203,7 @@ export class ReleaseService {
     artifactEntity.isInstallationFile = artifact.isInstallationFile;
     artifactEntity.arguments = artifact.arguments;
     artifactEntity.isExecutable = artifact.isExecutable;
+    artifactEntity.progress = 0; // Initialize progress to 0
     
     const res = new SetReleaseArtifactResDto();
     const upsertOptions: UpsertOptions<ReleaseArtifactEntity> = { conflictPaths: [] };
@@ -295,11 +296,19 @@ export class ReleaseService {
     if (release) {
       this.logger.debug(`onFileCreate: File is part of release: ${release.version}, of project: ${release.project.id}`);
       
-      // Sync sha256 from file_upload to release_artifact if present
+      // Sync sha256 and progress from file_upload to release_artifact if present
+      const updateData: any = {};
       if (fileUpload.sha256) {
+        updateData.sha256 = fileUpload.sha256;
+      }
+      if (fileUpload.progress !== undefined) {
+        updateData.progress = fileUpload.progress;
+      }
+      
+      if (Object.keys(updateData).length > 0) {
         await this.artifactRepo.update(
           { fileUpload: { objectKey: fileUpload.objectKey } },
-          { sha256: fileUpload.sha256 }
+          updateData
         );
       }
       
@@ -316,14 +325,22 @@ export class ReleaseService {
     })
     if (release) {
       this.logger.debug(`onFileDelete: File is part of release: ${release.version}, of project: ${release.project.id}`);      
-      // Sync sha256 from file_upload to release_artifact if present
+      // Sync sha256 and progress from file_upload to release_artifact if present
+      const updateData: any = {};
       if (fileUpload.sha256) {
+        updateData.sha256 = fileUpload.sha256;
+      }
+      if (fileUpload.progress !== undefined) {
+        updateData.progress = fileUpload.progress;
+      }
+      
+      if (Object.keys(updateData).length > 0) {
         await this.artifactRepo.update(
           { fileUpload: { objectKey: fileUpload.objectKey } },
-          { sha256: fileUpload.sha256 }
+          updateData
         );
       }
-            this.refreshReleaseState({ projectId: release.project.id, version: release.version } as ReleaseParams);
+      this.refreshReleaseState({ projectId: release.project.id, version: release.version } as ReleaseParams);
     }
   }
 
@@ -761,6 +778,10 @@ export class ReleaseService {
       savedFileUpload.progress = 0;
       await this.fileUploadService['uploadRepo'].save(savedFileUpload);
 
+      // Initialize artifact progress to 0
+      artifactEntity.progress = 0;
+      await this.artifactRepo.save(artifactEntity);
+
       // Download file from URL
       this.logger.log(`Downloading artifact from URL: ${artifact.downloadUrl}`);
       const response = await this.httpService.axiosRef.get(artifact.downloadUrl, {
@@ -785,6 +806,10 @@ export class ReleaseService {
           if (progress % 5 === 0 || totalSize < 1024 * 1024) { // Update every 5% or if file < 1MB
             savedFileUpload.progress = progress;
             await this.fileUploadService['uploadRepo'].save(savedFileUpload);
+            
+            // Also update progress in release_artifact table
+            artifactEntity.progress = progress;
+            await this.artifactRepo.save(artifactEntity);
           }
         }
       });
@@ -827,8 +852,9 @@ export class ReleaseService {
       savedFileUpload.progress = 100;
       await this.fileUploadService['uploadRepo'].save(savedFileUpload);
 
-      // Update release artifact with sha256
+      // Update release artifact with sha256 and final progress
       artifactEntity.sha256 = calculatedChecksum;
+      artifactEntity.progress = 100;
       await this.artifactRepo.save(artifactEntity);
 
       this.logger.log(`Successfully imported artifact: ${artifact.name}`);
