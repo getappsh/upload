@@ -138,7 +138,7 @@ export class ReleaseArtifactDto {
     dto.uploadId = artifact.fileUpload ? artifact.fileUpload.id : undefined;
     dto.status = artifact?.fileUpload?.status
     dto.size = artifact?.fileUpload?.size
-    dto.progress = artifact?.fileUpload?.progress
+    dto.progress = artifact?.fileUpload?.progress ?? artifact?.progress
     dto.arguments = artifact?.arguments;
     dto.isExecutable = artifact?.isExecutable;
 

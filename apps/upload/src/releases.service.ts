@@ -731,13 +731,15 @@ export class ReleaseService {
   ): Promise<void> {
     this.logger.log(`Starting background import of ${artifacts.length} artifacts for release ${release.catalogId}`);
     
-    for (const artifact of artifacts) {
-      try {
-        await this.importArtifact(release, artifact, userId, bucketName);
-      } catch (error) {
-        this.logger.error(`Error importing artifact ${artifact.name} in background: ${error.message}`);
-      }
-    }
+    await Promise.all(
+      artifacts.map(async (artifact) => {
+        try {
+          await this.importArtifact(release, artifact, userId, bucketName);
+        } catch (error) {
+          this.logger.error(`Error importing artifact ${artifact.name} in background: ${error.message}`);
+        }
+      })
+    );
     
     this.logger.log(`Completed background import for release ${release.catalogId}`);
   }
@@ -748,6 +750,7 @@ export class ReleaseService {
     userId: string,
     bucketName: string
   ): Promise<void> {
+
     this.logger.log(`Importing artifact: ${artifact.name} from URL: ${artifact.downloadUrl}`);
 
     // Create file upload entity with PENDING status
@@ -770,8 +773,9 @@ export class ReleaseService {
     artifactEntity.release = release;
     artifactEntity.fileUpload = savedFileUpload;
     artifactEntity.isInstallationFile = true;
+    artifactEntity.progress = 0;
     await this.artifactRepo.save(artifactEntity);
-
+  
     try {
       // Update status to UPLOADING with 0% progress
       savedFileUpload.status = FileUPloadStatusEnum.UPLOADING;
@@ -781,6 +785,9 @@ export class ReleaseService {
       // Initialize artifact progress to 0
       artifactEntity.progress = 0;
       await this.artifactRepo.save(artifactEntity);
+
+      //   // TODO: Remove this delay - only for testing
+      // await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay
 
       // Download file from URL
       this.logger.log(`Downloading artifact from URL: ${artifact.downloadUrl}`);
