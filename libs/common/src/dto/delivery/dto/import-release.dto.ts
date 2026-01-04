@@ -17,13 +17,13 @@ export class ImportArtifactDto {
   size: number;
 
   @ApiProperty({ description: 'SHA256 hash for integrity verification' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   sha256: string;
 
   @ApiProperty({ description: 'Download URL for the artifact (can be external or internal)' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   downloadUrl: string;
 
   @ApiProperty({ description: 'Additional metadata', required: false })
