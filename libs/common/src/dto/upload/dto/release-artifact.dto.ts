@@ -121,7 +121,13 @@ export class ReleaseArtifactDto {
   @ApiProperty({ required: false, type: 'integer', format: 'int64' })
   size?: number
 
-  @ApiProperty({ required: false, type: 'number', description: 'Upload/download progress percentage (0-100)' })
+  @ApiProperty({ 
+    required: false, 
+    type: 'number', 
+    minimum: -1, 
+    maximum: 100, 
+    description: 'Upload/download progress percentage (-1-100) where -1 indicates an error' 
+  })
   @IsOptional()
   @IsNumber()
   progress?: number
