@@ -737,6 +737,29 @@ export class ReleaseService {
           await this.importArtifact(release, artifact, userId, bucketName);
         } catch (error) {
           this.logger.error(`Error importing artifact ${artifact.name} in background: ${error.message}`);
+          
+          // Update release_artifact to indicate failure and save error message
+          await this.artifactRepo.update(
+            { 
+              release: { id: release.id },
+              artifactName: artifact.name 
+            },
+            { 
+              progress: -1,
+              metadata: { ...artifact.metadata, error: error.message }
+            }
+          ).catch(err => this.logger.error(`Failed to update artifact status: ${err.message}`));
+          
+          // Update file_upload to save the error message
+          const projectId = typeof release.project === 'object' && 'id' in release.project ? release.project.id : release.project;
+          const objectKey = `${projectId}/${release.version}/${artifact.name}`;
+          await this.fileUploadService['uploadRepo'].update(
+            { objectKey },
+            { 
+              status: FileUPloadStatusEnum.ERROR,
+              error: error.message
+            }
+          ).catch(err => this.logger.error(`Failed to update file_upload error: ${err.message}`));
         }
       })
     );
@@ -775,7 +798,7 @@ export class ReleaseService {
     artifactEntity.isInstallationFile = true;
     artifactEntity.progress = 0;
     await this.artifactRepo.save(artifactEntity);
-  
+
     try {
       // Update status to UPLOADING with 0% progress
       savedFileUpload.status = FileUPloadStatusEnum.UPLOADING;
@@ -842,7 +865,8 @@ export class ReleaseService {
         
         // Delete the uploaded file and mark as failed
         await this.minioClient.deleteObjects(bucketName, objectKey);
-        savedFileUpload.status = FileUPloadStatusEnum.REMOVED;
+        savedFileUpload.status = FileUPloadStatusEnum.ERROR;
+        savedFileUpload.error = 'Checksum mismatch';
         await this.fileUploadService['uploadRepo'].save(savedFileUpload);
         
         throw new BadRequestException(`Checksum mismatch for artifact ${artifact.name}`);
@@ -869,8 +893,9 @@ export class ReleaseService {
     } catch (error) {
       this.logger.error(`Failed to import artifact ${artifact.name}: ${error.message}`);
       
-      // Mark upload as failed by setting status to REMOVED
-      savedFileUpload.status = FileUPloadStatusEnum.REMOVED;
+      // Mark upload as failed by setting status to ERROR
+      savedFileUpload.status = FileUPloadStatusEnum.ERROR;
+      savedFileUpload.error = error.message;
       await this.fileUploadService['uploadRepo'].save(savedFileUpload);
       
       throw new BadRequestException(`Failed to download or upload artifact ${artifact.name}: ${error.message}`);

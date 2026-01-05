@@ -39,4 +39,7 @@ export class FileUploadEntity extends BaseEntity{
   @Column({ name: 'progress', type: 'integer', default: 0 })
   progress?: number
 
+  @Column({ name: 'error', type: 'text', nullable: true})
+  error?: string
+
 }

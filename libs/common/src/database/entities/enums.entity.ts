@@ -150,7 +150,8 @@ export enum FileUPloadStatusEnum {
     UPLOADED = "uploaded",
     PENDING = "pending",
     UPLOADING = "uploading",
-    REMOVED = "removed"
+    REMOVED = "removed",
+    ERROR = "error"
 }
 
 export enum ReleaseStatusEnum {
