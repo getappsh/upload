@@ -44,6 +44,6 @@ export class ReleaseArtifactEntity extends BaseEntity {
   @Column({ name: 'sha256', type: 'text', nullable: true})
   sha256?: string
 
-  @Column({ name: 'progress', type: 'integer', default: 0 })
+  @Column({ name: 'progress', type: 'integer', nullable: true })
   progress?: number
 }

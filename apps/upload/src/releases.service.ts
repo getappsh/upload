@@ -741,7 +741,7 @@ export class ReleaseService {
           // Update release_artifact to indicate failure and save error message
           await this.artifactRepo.update(
             { 
-              release: { id: release.id },
+              release: { catalogId: release.catalogId },
               artifactName: artifact.name 
             },
             { 
@@ -811,6 +811,9 @@ export class ReleaseService {
 
       //   // TODO: Remove this delay - only for testing
       // await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay
+      //todo: remove before merge - only for testing
+      //simulate an error
+      // throw new Error('Simulated error during artifact import');
 
       // Download file from URL
       this.logger.log(`Downloading artifact from URL: ${artifact.downloadUrl}`);
