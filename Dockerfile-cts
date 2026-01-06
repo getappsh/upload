@@ -39,10 +39,8 @@ ENV CI=true
 
 RUN apk add --no-cache curl bash
 
-# install cosign (latest stable release from GitHub)
-RUN COSIGN_VERSION=$(curl -s https://api.github.com/repos/sigstore/cosign/releases/latest \
-    | grep tag_name | cut -d '"' -f 4) && \
-    curl -L "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64" \
+# install cosign v3.0.2
+RUN curl -L "https://github.com/sigstore/cosign/releases/download/v3.0.2/cosign-linux-amd64" \
     -o /usr/local/bin/cosign && \
     chmod +x /usr/local/bin/cosign
 
@@ -81,11 +79,8 @@ COPY --chown=${uid}:${uid} package*.json ./
 RUN npm install --only=production --omit=dev
 
 COPY --chown=${uid}:${uid} --from=build /node-app/dist/ .
-RUN echo "$upload_version_tag" > NEW_TAG.txt 
-
-# a file that contains the image version
-# COPY docker_image_version.txt /docker_image_version.txt
-# RUN cat docker_image_version.txt
+RUN echo "$upload_version_tag" > upload_version_tag.txt
+RUN cat upload_version_tag.txt
 
 USER ${username}
 CMD ["node", "apps/upload/main.js"]
