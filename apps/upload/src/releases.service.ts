@@ -203,7 +203,6 @@ export class ReleaseService {
     artifactEntity.isInstallationFile = artifact.isInstallationFile;
     artifactEntity.arguments = artifact.arguments;
     artifactEntity.isExecutable = artifact.isExecutable;
-    artifactEntity.progress = 0; // Initialize progress to 0
     
     const res = new SetReleaseArtifactResDto();
     const upsertOptions: UpsertOptions<ReleaseArtifactEntity> = { conflictPaths: [] };
@@ -296,13 +295,10 @@ export class ReleaseService {
     if (release) {
       this.logger.debug(`onFileCreate: File is part of release: ${release.version}, of project: ${release.project.id}`);
       
-      // Sync sha256 and progress from file_upload to release_artifact if present
+      // Sync sha256 from file_upload to release_artifact if present
       const updateData: any = {};
       if (fileUpload.sha256) {
         updateData.sha256 = fileUpload.sha256;
-      }
-      if (fileUpload.progress !== undefined) {
-        updateData.progress = fileUpload.progress;
       }
       
       if (Object.keys(updateData).length > 0) {
@@ -324,14 +320,11 @@ export class ReleaseService {
       relations: { project: true }
     })
     if (release) {
-      this.logger.debug(`onFileDelete: File is part of release: ${release.version}, of project: ${release.project.id}`);      
-      // Sync sha256 and progress from file_upload to release_artifact if present
+      this.logger.debug(`onFileDelete: File is part of release: ${release.version}, of project: ${release.project.id}`);
+      // Sync sha256 from file_upload to release_artifact if present
       const updateData: any = {};
       if (fileUpload.sha256) {
         updateData.sha256 = fileUpload.sha256;
-      }
-      if (fileUpload.progress !== undefined) {
-        updateData.progress = fileUpload.progress;
       }
       
       if (Object.keys(updateData).length > 0) {
@@ -738,26 +731,15 @@ export class ReleaseService {
         } catch (error) {
           this.logger.error(`Error importing artifact ${artifact.name} in background: ${error.message}`);
           
-          // Update release_artifact to indicate failure and save error message
-          await this.artifactRepo.update(
-            { 
-              release: { catalogId: release.catalogId },
-              artifactName: artifact.name 
-            },
-            { 
-              progress: -1,
-              metadata: { ...artifact.metadata, error: error.message }
-            }
-          ).catch(err => this.logger.error(`Failed to update artifact status: ${err.message}`));
-          
-          // Update file_upload to save the error message
+          // Update file_upload to save the error message and set progress to -1
           const projectId = typeof release.project === 'object' && 'id' in release.project ? release.project.id : release.project;
           const objectKey = `${projectId}/${release.version}/${artifact.name}`;
           await this.fileUploadService['uploadRepo'].update(
             { objectKey },
             { 
               status: FileUPloadStatusEnum.ERROR,
-              error: error.message
+              error: error.message,
+              progress: -1
             }
           ).catch(err => this.logger.error(`Failed to update file_upload error: ${err.message}`));
         }
@@ -796,7 +778,6 @@ export class ReleaseService {
     artifactEntity.release = release;
     artifactEntity.fileUpload = savedFileUpload;
     artifactEntity.isInstallationFile = true;
-    artifactEntity.progress = 0;
     await this.artifactRepo.save(artifactEntity);
 
     try {
@@ -804,10 +785,6 @@ export class ReleaseService {
       savedFileUpload.status = FileUPloadStatusEnum.UPLOADING;
       savedFileUpload.progress = 0;
       await this.fileUploadService['uploadRepo'].save(savedFileUpload);
-
-      // Initialize artifact progress to 0
-      artifactEntity.progress = 0;
-      await this.artifactRepo.save(artifactEntity);
 
       //   // TODO: Remove this delay - only for testing
       // await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay
@@ -839,10 +816,6 @@ export class ReleaseService {
           if (progress % 5 === 0 || totalSize < 1024 * 1024) { // Update every 5% or if file < 1MB
             savedFileUpload.progress = progress;
             await this.fileUploadService['uploadRepo'].save(savedFileUpload);
-            
-            // Also update progress in release_artifact table
-            artifactEntity.progress = progress;
-            await this.artifactRepo.save(artifactEntity);
           }
         }
       });
@@ -870,6 +843,7 @@ export class ReleaseService {
         await this.minioClient.deleteObjects(bucketName, objectKey);
         savedFileUpload.status = FileUPloadStatusEnum.ERROR;
         savedFileUpload.error = 'Checksum mismatch';
+        savedFileUpload.progress = -1;
         await this.fileUploadService['uploadRepo'].save(savedFileUpload);
         
         throw new BadRequestException(`Checksum mismatch for artifact ${artifact.name}`);
@@ -886,9 +860,8 @@ export class ReleaseService {
       savedFileUpload.progress = 100;
       await this.fileUploadService['uploadRepo'].save(savedFileUpload);
 
-      // Update release artifact with sha256 and final progress
+      // Update release artifact with sha256
       artifactEntity.sha256 = calculatedChecksum;
-      artifactEntity.progress = 100;
       await this.artifactRepo.save(artifactEntity);
 
       this.logger.log(`Successfully imported artifact: ${artifact.name}`);
@@ -896,9 +869,10 @@ export class ReleaseService {
     } catch (error) {
       this.logger.error(`Failed to import artifact ${artifact.name}: ${error.message}`);
       
-      // Mark upload as failed by setting status to ERROR
+      // Mark upload as failed by setting status to ERROR and progress to -1
       savedFileUpload.status = FileUPloadStatusEnum.ERROR;
       savedFileUpload.error = error.message;
+      savedFileUpload.progress = -1;
       await this.fileUploadService['uploadRepo'].save(savedFileUpload);
       
       throw new BadRequestException(`Failed to download or upload artifact ${artifact.name}: ${error.message}`);
