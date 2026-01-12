@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { spawn } from 'child_process';
 import { createHash } from 'crypto';
@@ -49,7 +49,7 @@ export class FileProcessingService {
     const calculateCosign = options.calculateCosign === true;
 
     if (!calculateSha256 && !calculateCosign) {
-      throw new Error('At least one processing option must be enabled');
+      throw new BadRequestException('At least one processing option must be enabled');
     }
 
     // If only one operation is needed, process directly without stream splitting
