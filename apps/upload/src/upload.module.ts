@@ -1,4 +1,5 @@
 import { DatabaseModule, UploadJwtConfigService } from '@app/common';
+import { RuleModule } from '@app/common/rules';
 import { S3Service } from '@app/common/AWS/s3.service';
 import { FileUploadEntity, MemberEntity, MemberProjectEntity, ProjectEntity, RegulationEntity, RegulationStatusEntity, ReleaseArtifactEntity, ReleaseEntity, UploadVersionEntity} from '@app/common/database/entities';
 import { Module } from '@nestjs/common';
@@ -20,6 +21,8 @@ import { RegulationEnforcementService } from './regulation-enforcement.service';
 import { JUnitParserService } from './utils/junit-parser.service';
 import { PROJECT_ACCESS_SERVICE } from '@app/common/utils/project-access';
 import { CosignSignatureService } from '@app/common/AWS/cosign-signature.service';
+import { PolicyService } from './policy.service';
+import { PolicyController } from './policy.controller';
 
 @Module({
   imports: [
@@ -32,6 +35,7 @@ import { CosignSignatureService } from '@app/common/AWS/cosign-signature.service
     }),
     ApmModule,
     DatabaseModule,
+    RuleModule,
     JwtModule.registerAsync({
       useClass: UploadJwtConfigService
     }),
@@ -51,7 +55,7 @@ import { CosignSignatureService } from '@app/common/AWS/cosign-signature.service
       id: 'upload'
     }),
   ],
-  controllers: [UploadController],
+  controllers: [UploadController, PolicyController],
   providers: [
     UploadService, 
     S3Service, 
@@ -63,6 +67,7 @@ import { CosignSignatureService } from '@app/common/AWS/cosign-signature.service
     RegulationEnforcementService,
     JUnitParserService,
     CosignSignatureService,
+    PolicyService,
     {
       provide: PROJECT_ACCESS_SERVICE,
       useExisting: UploadService
