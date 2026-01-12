@@ -307,7 +307,7 @@ export class ReleaseService {
       
       if (Object.keys(updateData).length > 0) {
         await this.artifactRepo.update(
-          { fileUpload: { objectKey: fileUpload.objectKey } },
+          { fileUpload: { id: fileUpload.id } },
           updateData
         );
       }
@@ -336,7 +336,7 @@ export class ReleaseService {
       
       if (Object.keys(updateData).length > 0) {
         await this.artifactRepo.update(
-          { fileUpload: { objectKey: fileUpload.objectKey } },
+          { fileUpload: { id: fileUpload.id } },
           updateData
         );
       }

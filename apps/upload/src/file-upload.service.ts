@@ -1,4 +1,4 @@
-import { FileUploadEntity, FileUPloadStatusEnum } from "@app/common/database/entities";
+import { FileUploadEntity, FileUPloadStatusEnum, ReleaseArtifactEntity } from "@app/common/database/entities";
 import { CreateFileUploadUrlDto, FileUploadUrlDto, UpdateFileUploadDto } from "@app/common/dto/upload";
 import { ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -8,7 +8,7 @@ import { MinioClientService } from "@app/common/AWS/minio-client.service";
 import { TimeoutRepeatTask } from "@app/common/safe-cron/timeout-repeated-task.decorator";
 import stream from 'stream';
 import { EventEmitter } from 'eventemitter3';
-import { CosignSignatureService } from "@app/common/AWS/cosign-signature.service";
+import { FileProcessingService } from "@app/common/AWS/file-processing.service";
 
 
 @Injectable()
@@ -22,8 +22,9 @@ export class FileUploadService {
   constructor(
     private readonly configService: ConfigService,
     private readonly minioClient: MinioClientService,
-    private readonly cosignSignatureService: CosignSignatureService,
+    private readonly fileProcessingService: FileProcessingService,
     @InjectRepository(FileUploadEntity) private readonly uploadRepo: Repository<FileUploadEntity>,
+    @InjectRepository(ReleaseArtifactEntity) private readonly artifactRepo: Repository<ReleaseArtifactEntity>,
   ) { }
 
 
@@ -203,20 +204,18 @@ export class FileUploadService {
       return 0;
     }
 
-    // Calculate SHA256 when file is uploaded if not already present
+    // Process file for SHA256 and/or Cosign signature when uploaded
+    // SHA256 is calculated by default for all uploaded files unless already present
     if (file.status === FileUPloadStatusEnum.UPLOADED) {
       const existingFile = await this.getFileByObjectKey(file.objectKey);
-      if (!existingFile.sha256) {
-        this.calculateAndSaveSha256(file.objectKey).catch(err => {
-          this.logger.error(`Error calculating SHA256: ${file.objectKey}, error: ${err}`);
+      const needsSha256 = !existingFile.sha256;
+      const needsCosign = this.configService.get('COSIGN_DO_SIGN_FILES') === 'true';
+
+      if (needsSha256 || needsCosign) {
+        this.processAndSaveFile(file.objectKey, needsSha256, needsCosign).catch(err => {
+          this.logger.error(`Error processing file: ${file.objectKey}, error: ${err}`);
         });
       }
-    }
-
-    if (file.status === FileUPloadStatusEnum.UPLOADED && this.configService.get('COSIGN_DO_SIGN_FILES') === 'true') {
-      this.signFile(file.objectKey).catch(err => {
-        this.logger.error(`Error signing file: ${file.objectKey}, error: ${err}`);
-      });
     }
 
     const res = await this.uploadRepo.update({ objectKey: file.objectKey }, file);
@@ -233,15 +232,74 @@ export class FileUploadService {
     return res.affected
   }
 
-  private async calculateAndSaveSha256(objectKey: string): Promise<void> {
-    this.logger.log(`Calculating SHA256 for objectKey: ${objectKey}`);
+  /**
+   * Efficiently process file for SHA256 and/or Cosign signature using a single stream
+   * @param objectKey - The object key
+   * @param calculateSha256 - Whether to calculate SHA256
+   * @param calculateCosign - Whether to calculate Cosign signature
+   */
+  private async processAndSaveFile(
+    objectKey: string,
+    calculateSha256: boolean,
+    calculateCosign: boolean
+  ): Promise<void> {
+    this.logger.log(`Processing file: ${objectKey}, SHA256: ${calculateSha256}, Cosign: ${calculateCosign}`);
+    
     try {
       const file = await this.getFileByObjectKey(objectKey);
-      const sha256 = await this.calculateSha256FromBucket(this.bucketName, objectKey);
-      this.logger.log(`SHA256 calculated for ${objectKey}: ${sha256}`);
-      await this.uploadRepo.update({ id: file.id }, { sha256 });
+      if (!file) {
+        this.logger.warn(`File not found: ${objectKey}`);
+        return;
+      }
+
+      // Get file stream from MinIO
+      const fileStream = await this.minioClient.getObject(this.bucketName, objectKey);
+
+      // Process file efficiently (stream is split internally if both operations are needed)
+      // SHA256 is calculated by default unless explicitly set to false
+      const result = await this.fileProcessingService.processFile(fileStream, {
+        calculateSha256,
+        calculateCosign,
+      });
+
+      // Update database with results
+      const updateData: Partial<FileUploadEntity> = {};
+      
+      if (result.sha256) {
+        updateData.sha256 = result.sha256;
+        this.logger.log(`SHA256 calculated for ${objectKey}: ${result.sha256}`);
+      }
+      
+      if (result.cosignSignature) {
+        updateData.signature = result.cosignSignature.toString();
+        this.logger.log(`File signed: ${objectKey}, signature: ${result.cosignSignature.toString()}`);
+      }
+
+      await this.uploadRepo.update({ id: file.id }, updateData);
+      this.logger.debug(`File processing results saved to DB: ${objectKey}`);
+      
+      // Directly sync SHA256 to release_artifact table if calculated
+      if (result.sha256) {
+        try {
+          await this.artifactRepo.update(
+            { fileUpload: { id: file.id } },
+            { sha256: result.sha256 }
+          );
+          this.logger.debug(`SHA256 synced to release_artifact for fileUpload ID: ${file.id}`);
+        } catch (error) {
+          this.logger.warn(`Failed to sync SHA256 to release_artifact for fileUpload ID: ${file.id}: ${error.message}`);
+        }
+      }
+      
+      // Emit fileCreated event again to sync sha256 and other updates to related tables
+      if (result.sha256) {
+        const updatedFile = await this.getFileByObjectKey(objectKey);
+        this.emitter.emit("fileCreated", updatedFile);
+        this.logger.debug(`Emitted fileCreated event for sha256 sync: ${objectKey}`);
+      }
     } catch (error) {
-      this.logger.error(`Error calculating SHA256 for ${objectKey}: ${error}`);
+      this.logger.error(`Error processing file: ${objectKey}, error: ${error}`);
+      throw error;
     }
   }
 
@@ -252,35 +310,13 @@ export class FileUploadService {
    * @returns The SHA256 hash as a hex string
    */
   async calculateSha256FromBucket(bucketName: string, objectKey: string): Promise<string> {
-    const stream = await this.minioClient.getObject(bucketName, objectKey);
-    const hash = require('crypto').createHash('sha256');
-    
-    await new Promise((resolve, reject) => {
-      stream.on('data', (chunk) => hash.update(chunk));
-      stream.on('end', resolve);
-      stream.on('error', reject);
+    this.logger.log(`Calculating SHA256 for ${bucketName}/${objectKey}`);
+    const fileStream = await this.minioClient.getObject(bucketName, objectKey);
+    // Explicitly calculate only SHA256 (default behavior, but being explicit for clarity)
+    const result = await this.fileProcessingService.processFile(fileStream, {
+      calculateCosign: false,
     });
-    
-    return hash.digest('hex');
-  }
-
-  private async signFile(objectKey: string): Promise<void> {
-    this.logger.log(`Signing file with objectKey: ${objectKey}`);
-    const file = await this.getFileByObjectKey(objectKey);
-    if (!file) {
-      this.logger.warn(`File not found: ${objectKey}`);
-      return;
-    }
-    this.logger.debug(`File found: ${file.objectKey}, id: ${file.id}`);
-    try {
-      const fileStream = await this.getFileStream(file.id);
-      const signature = await this.cosignSignatureService.signFile(fileStream)
-      this.logger.log(`File signed: ${file.objectKey}, signature: ${signature.toString()}`);
-      await this.uploadRepo.update({ id: file.id }, { signature: signature.toString() });
-      this.logger.debug(`File signature saved to DB: ${file.objectKey}`);
-    } catch (error) {
-      this.logger.error(`Error signing file: ${file.objectKey}, error: ${error}`);
-    }
+    return result.sha256!;
   }
 
 

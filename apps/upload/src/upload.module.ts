@@ -21,6 +21,7 @@ import { RegulationEnforcementService } from './regulation-enforcement.service';
 import { JUnitParserService } from './utils/junit-parser.service';
 import { PROJECT_ACCESS_SERVICE } from '@app/common/utils/project-access';
 import { CosignSignatureService } from '@app/common/AWS/cosign-signature.service';
+import { FileProcessingService } from '@app/common/AWS/file-processing.service';
 
 @Module({
   imports: [
@@ -65,6 +66,7 @@ import { CosignSignatureService } from '@app/common/AWS/cosign-signature.service
     RegulationEnforcementService,
     JUnitParserService,
     CosignSignatureService,
+    FileProcessingService,
     {
       provide: PROJECT_ACCESS_SERVICE,
       useExisting: UploadService

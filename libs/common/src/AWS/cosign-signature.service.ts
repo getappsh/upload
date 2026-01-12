@@ -5,6 +5,7 @@ import { mkdtempSync, writeFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { spawn } from 'child_process';
 import stream from 'stream';
+import { FileProcessingService, FileProcessingOptions, FileProcessingResult } from './file-processing.service';
 
 @Injectable()
 export class CosignSignatureService {
@@ -12,6 +13,7 @@ export class CosignSignatureService {
   private readonly privateKeyPath: string;
   private readonly publicKeyPath: string;
   private readonly password: string;
+  private readonly fileProcessingService: FileProcessingService;
 
   constructor(
     private readonly configService: ConfigService,
@@ -20,43 +22,38 @@ export class CosignSignatureService {
       this.password = this.configService.getOrThrow<string>('COSIGN_PASSWORD');
       this.privateKeyPath = this.configService.getOrThrow<string>('COSIGN_PRIVATE_KEY_PATH');
       this.publicKeyPath = this.configService.getOrThrow<string>('COSIGN_PUBLIC_KEY_PATH');
+      this.fileProcessingService = new FileProcessingService(configService);
     } catch (error) {
       this.logger.error('Missing required COSIGN configuration environment variables.', error);
     }
   }
 
+  /**
+   * Sign a file stream with Cosign
+   * @deprecated Use processFile with options instead for better efficiency
+   */
   async signFile(fileStream: stream.Readable): Promise<Buffer> {
     this.logger.debug(`Signing file`);
-
-    const env = { ...process.env };
-    env.COSIGN_PASSWORD = this.password;
-
-    return new Promise<Buffer>((resolve, reject) => {
-      const cosign = spawn('cosign', ['sign-blob', '-', '--key', this.privateKeyPath, "--tlog-upload=false"], { env });
-
-      let signature = Buffer.alloc(0);
-
-      cosign.on('error', (err) => {
-        this.logger.error(`Failed to spawn cosign process: ${err.message}`);
-        reject(new Error(`Cosign spawn failed: ${err.message}`));
-      });
-
-      cosign.stdout.on('data', (chunk) => {
-        this.logger.log(`Received chunk of size: ${chunk.length}`);
-        signature = Buffer.concat([signature, chunk]);
-      });
-
-      cosign.stderr.on('data', (chunk) => this.logger.warn(chunk.toString()));
-
-      cosign.on('exit', (code) => {
-        if (code === 0) resolve(signature);
-        else reject(new Error(`Cosign exited with code ${code}`));
-      });
-
-      // Pipe MinIO file stream into Cosign stdin
-      fileStream.pipe(cosign.stdin);
-      fileStream.on('error', (err) => reject(err));
+    const result = await this.fileProcessingService.processFile(fileStream, {
+      calculateCosign: true,
+      calculateSha256: false,
     });
+    return result.cosignSignature!;
+  }
+
+  /**
+   * Process a file to calculate SHA256, Cosign signature, or both
+   * This is the recommended method for processing files efficiently
+   * 
+   * @param fileStream - The readable stream of the file to process
+   * @param options - Options to specify what to calculate
+   * @returns Promise with the requested calculations (sha256 and/or cosignSignature)
+   */
+  async processFile(
+    fileStream: stream.Readable,
+    options: FileProcessingOptions
+  ): Promise<FileProcessingResult> {
+    return this.fileProcessingService.processFile(fileStream, options);
   }
 
 
