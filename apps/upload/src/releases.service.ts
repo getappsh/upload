@@ -321,18 +321,6 @@ export class ReleaseService {
     })
     if (release) {
       this.logger.debug(`onFileDelete: File is part of release: ${release.version}, of project: ${release.project.id}`);
-      // Sync sha256 from file_upload to release_artifact if present
-      const updateData: any = {};
-      if (fileUpload.sha256) {
-        updateData.sha256 = fileUpload.sha256;
-      }
-      
-      if (Object.keys(updateData).length > 0) {
-        await this.artifactRepo.update(
-          { fileUpload: { id: fileUpload.id } },
-          updateData
-        );
-      }
       this.refreshReleaseState({ projectId: release.project.id, version: release.version } as ReleaseParams);
     }
   }
