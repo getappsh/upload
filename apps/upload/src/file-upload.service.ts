@@ -112,7 +112,7 @@ export class FileUploadService {
     this.emitter.on("fileDeleted", callback);
   }
 
-  private createObjectKey(dto: CreateFileUploadUrlDto) {
+  createObjectKey(dto: CreateFileUploadUrlDto) {
     if (dto.objectKey) {
       const suffix = dto.objectKey.endsWith('/') ? '' : '/';
       return `${FileUploadService.OBJECT_PREFIX}${dto.userId}/${dto.objectKey}${suffix}${dto.fileName}`;

@@ -721,7 +721,11 @@ export class ReleaseService {
           
           // Update file_upload to save the error message and set progress to -1
           const projectId = typeof release.project === 'object' && 'id' in release.project ? release.project.id : release.project;
-          const objectKey = `${projectId}/${release.version}/${artifact.name}`;
+          const dtoForKey = new CreateFileUploadUrlDto();
+          dtoForKey.userId = userId;
+          dtoForKey.fileName = artifact.name;
+          dtoForKey.objectKey = `${projectId}/${release.version}`;
+          const objectKey = this.fileUploadService.createObjectKey(dtoForKey);
           await this.fileUploadService['uploadRepo'].update(
             { objectKey },
             { 
@@ -748,7 +752,11 @@ export class ReleaseService {
 
     // Create file upload entity with PENDING status
     const projectId = typeof release.project === 'object' && 'id' in release.project ? release.project.id : release.project;
-    const objectKey = `${projectId}/${release.version}/${artifact.name}`;
+    const dtoForKey = new CreateFileUploadUrlDto();
+    dtoForKey.userId = userId;
+    dtoForKey.fileName = artifact.name;
+    dtoForKey.objectKey = `${projectId}/${release.version}`;
+    const objectKey = this.fileUploadService.createObjectKey(dtoForKey);
     const fileUpload = new FileUploadEntity();
     fileUpload.fileName = artifact.name;
     fileUpload.objectKey = objectKey;
