@@ -1,10 +1,10 @@
 import { UploadTopics, UploadTopicsEmit } from '@app/common/microservice-client/topics';
 import { RoleInProject, UploadVersionEntity } from '@app/common/database/entities';
-import { Controller, Logger } from '@nestjs/common';
+import { Controller, Logger, UseInterceptors } from '@nestjs/common';
 import { EventPattern, MessagePattern, RpcException } from '@nestjs/microservices';
 import { UploadService } from './upload.service';
 import { CreateFileUploadUrlDto, ReleaseArtifactNameParams, ReleaseArtifactParams, ReleaseParams, SetReleaseArtifactDto, SetReleaseDto, UpdateFileUploadDto, UpdateUploadStatusDto, UpdateFilePropertiesDto } from '@app/common/dto/upload';
-import { RpcPayload } from '@app/common/microservice-client';
+import { RpcPayload, UserContextInterceptor } from '@app/common/microservice-client';
 import * as fs from 'fs';
 import { FileUploadService } from './file-upload.service';
 import { ReleaseService } from './releases.service';
@@ -12,9 +12,11 @@ import { RegulationStatusService } from './regulation-status.service';
 import { RegulationStatusParams, SetRegulationCompliancyDto, SetRegulationStatusDto } from '@app/common/dto/upload';
 import { ValidateProjectAnyAccess } from '@app/common/utils/project-access';
 import { RegulationChangedEvent } from '@app/common/dto/project-management';
+import { AuthUser } from './utils/auth-user.decorator';
 
 
 @Controller()
+@UseInterceptors(UserContextInterceptor)
 export class UploadController {
   private readonly logger = new Logger(UploadController.name);
 
@@ -81,8 +83,8 @@ export class UploadController {
 
   @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.SET_RELEASE)
-  setRelease(@RpcPayload() release: SetReleaseDto){
-    return this.releasesService.setRelease(release);
+  setRelease(@RpcPayload() release: SetReleaseDto, @AuthUser('email') userEmail: string){
+    return this.releasesService.setRelease(release, userEmail);
   }
 
   @MessagePattern(UploadTopics.GET_RELEASES)
