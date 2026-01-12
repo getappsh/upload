@@ -786,11 +786,6 @@ export class ReleaseService {
       savedFileUpload.progress = 0;
       await this.fileUploadService['uploadRepo'].save(savedFileUpload);
 
-      //   // TODO: Remove this delay - only for testing
-      // await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay
-      //todo: remove before merge - only for testing
-      //simulate an error
-      // throw new Error('Simulated error during artifact import');
 
       // Download file from URL
       this.logger.log(`Downloading artifact from URL: ${artifact.downloadUrl}`);
