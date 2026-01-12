@@ -275,6 +275,9 @@ export class FileUploadService {
         this.logger.log(`File signed: ${objectKey}, signature: ${result.cosignSignature.toString()}`);
       }
 
+      // Set progress to 100 since file was successfully uploaded and processed
+      updateData.progress = 100;
+
       await this.uploadRepo.update({ id: file.id }, updateData);
       this.logger.debug(`File processing results saved to DB: ${objectKey}`);
       
