@@ -266,6 +266,21 @@ export class UploadService implements ProjectAccessService {
     return memberProjects.map(mp => mp.project.id);
   }
 
+  async getProjectIdsByNames(projectNames: string[]): Promise<number[]> {
+    this.logger.verbose(`Getting project IDs for names: ${projectNames.join(', ')}`);
+    
+    if (projectNames.length === 0) {
+      return [];
+    }
+
+    const projects = await this.projectRepo.find({
+      select: { id: true },
+      where: projectNames.map(name => ({ name }))
+    });
+
+    return projects.map(p => p.id);
+  }
+
 
     
 }

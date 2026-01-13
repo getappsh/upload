@@ -39,11 +39,12 @@ export class PolicyController {
   /**
    * Get a specific policy by ID
    */
-  @ValidateProjectAnyAccess()
   @MessagePattern('getapp-upload.get-policy')
-  async getPolicy(@Payload() id: string) {
+  async getPolicy(@Payload() payload: any) {
+    const id = payload.value || payload;
+    const userEmail = payload.headers?.user?.email;
     this.logger.log(`Getting policy ${id}`);
-    return this.policyService.getPolicy(id);
+    return this.policyService.getPolicyForUser(id, userEmail);
   }
 
   /**

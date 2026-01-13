@@ -9,7 +9,7 @@ export class PolicyService {
   constructor(
     private readonly ruleService: RuleService,
     private readonly ruleValidationService: RuleValidationService,
-    @Inject(PROJECT_ACCESS_SERVICE) private readonly uploadService: ProjectAccessService & { getUserProjectIds: (email: string) => Promise<number[]> },
+    @Inject(PROJECT_ACCESS_SERVICE) private readonly uploadService: ProjectAccessService & { getUserProjectIds: (email: string) => Promise<number[]>; getProjectIdsByNames: (names: string[]) => Promise<number[]> },
   ) {}
 
   /**
@@ -47,6 +47,31 @@ export class PolicyService {
   async getPolicy(id: string) {
     const rule = await this.ruleService.findOneById(id);
     return this.ruleService.ruleEntityToDefinition(rule);
+  }
+
+  /**
+   * Gets a specific policy by ID with user access validation
+   */
+  async getPolicyForUser(id: string, userEmail: string) {
+    if (!userEmail) {
+      throw new UnauthorizedException('User authentication required to retrieve policy');
+    }
+
+    const policy = await this.getPolicy(id);
+    const userProjectIds = await this.uploadService.getUserProjectIds(userEmail);
+    
+    // Get project IDs from policy's associated project names
+    const policyProjectNames = policy.association?.releases?.map(r => r.projectName) || [];
+    const policyProjectIds = await this.uploadService.getProjectIdsByNames(policyProjectNames);
+    
+    // Check if user has access to any of the policy's associated projects
+    const hasAccess = policyProjectIds.some(projectId => userProjectIds.includes(projectId));
+    
+    if (!hasAccess) {
+      throw new UnauthorizedException('You do not have access to this policy');
+    }
+
+    return policy;
   }
 
   /**
