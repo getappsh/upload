@@ -2,7 +2,7 @@ import { Controller, Logger } from '@nestjs/common';
 import { MessagePattern } from '@nestjs/microservices';
 import { UploadTopics } from '@app/common/microservice-client/topics';
 import { RpcPayload } from '@app/common/microservice-client';
-import { CreateRuleDto, UpdateRuleDto, RuleQueryDto, CreateRuleFieldDto } from '@app/common/rules/dto';
+import { CreatePolicyDto, UpdateRuleDto, RuleQueryDto, CreateRuleFieldDto } from '@app/common/rules/dto';
 import { PolicyService } from './policy.service';
 import { ValidateProjectAnyAccess } from '@app/common/utils/project-access';
 
@@ -27,9 +27,9 @@ export class PolicyController {
    */
   @ValidateProjectAnyAccess()
   @MessagePattern('getapp-upload.create-policy')
-  async createPolicy(@RpcPayload() createRuleDto: CreateRuleDto) {
+  async createPolicy(@RpcPayload() createPolicyDto: CreatePolicyDto) {
     this.logger.log('Creating policy');
-    return this.policyService.createPolicy(createRuleDto);
+    return this.policyService.createPolicy(createPolicyDto);
   }
 
   /**
