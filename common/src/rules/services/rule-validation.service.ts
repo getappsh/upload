@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RuleFieldEntity } from '../../database/entities/rule-field.entity';
@@ -136,7 +136,7 @@ export class RuleValidationService {
     });
 
     if (!field) {
-      throw new BadRequestException(`Field "${fieldName}" not found`);
+      throw new NotFoundException(`Field "${fieldName}" not found`);
     }
 
     await this.ruleFieldRepository.remove(field);
