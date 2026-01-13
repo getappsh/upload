@@ -4,7 +4,7 @@ import { UploadTopics } from '@app/common/microservice-client/topics';
 import { RpcPayload } from '@app/common/microservice-client';
 import { CreatePolicyDto, UpdateRuleDto, RuleQueryDto, CreateRuleFieldDto } from '@app/common/rules/dto';
 import { PolicyService } from './policy.service';
-import { ValidateProjectAnyAccess } from '@app/common/utils/project-access';
+import { ValidateProjectAnyAccess, ValidateProjectListAccess } from '@app/common/utils/project-access';
 
 @Controller()
 export class PolicyController {
@@ -25,7 +25,7 @@ export class PolicyController {
   /**
    * Create a new policy
    */
-  @ValidateProjectAnyAccess()
+  @ValidateProjectListAccess('association.releases')
   @MessagePattern('getapp-upload.create-policy')
   async createPolicy(@RpcPayload() createPolicyDto: CreatePolicyDto) {
     this.logger.log('Creating policy');
@@ -45,7 +45,13 @@ export class PolicyController {
   /**
    * Update a policy
    */
-  @ValidateProjectAnyAccess()
+  @ValidateProjectListAccess((payload: any) => {
+    // For updates, extract from the data.association.releases if present
+    if (payload.data?.association?.releases) {
+      return payload.data.association.releases.map((r: any) => r.projectName);
+    }
+    return [];
+  })
   @MessagePattern('getapp-upload.update-policy')
   async updatePolicy(@RpcPayload() payload: { id: string; data: UpdateRuleDto }) {
     this.logger.log(`Updating policy ${payload.id}`);
