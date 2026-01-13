@@ -52,15 +52,17 @@ export class PolicyController {
    */
   @ValidateProjectListAccess((payload: any) => {
     // For updates, extract from the data.association.releases if present
-    if (payload.data?.association?.releases) {
-      return payload.data.association.releases.map((r: any) => r.projectName);
+    const data = payload.value || payload;
+    if (data.data?.association?.releases) {
+      return data.data.association.releases.map((r: any) => r.projectName);
     }
     return [];
   })
   @MessagePattern('getapp-upload.update-policy')
-  async updatePolicy(@Payload() payload: { id: string; data: UpdateRuleDto }) {
-    this.logger.log(`Updating policy ${payload.id}`);
-    return this.policyService.updatePolicy(payload.id, payload.data);
+  async updatePolicy(@Payload() payload: any) {
+    const data = payload.value || payload;
+    this.logger.log(`Updating policy ${data.id}`);
+    return this.policyService.updatePolicy(data.id, data.data);
   }
 
   /**
