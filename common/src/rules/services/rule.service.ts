@@ -144,7 +144,7 @@ export class RuleService {
   /**
    * Finds all rules with optional filters
    */
-  async findAll(query: RuleQueryDto): Promise<RuleEntity[]> {
+  async findAll(query: RuleQueryDto, projectIds?: number[]): Promise<RuleEntity[]> {
     const queryBuilder = this.ruleRepository
       .createQueryBuilder('rule')
       .leftJoinAndSelect('rule.releaseAssociations', 'releaseAssoc')
@@ -162,6 +162,11 @@ export class RuleService {
 
     if (query.isActive !== undefined) {
       queryBuilder.andWhere('rule.isActive = :isActive', { isActive: query.isActive });
+    }
+
+    // Filter by project IDs if provided (for policies)
+    if (projectIds && projectIds.length > 0 && query.type === RuleType.POLICY) {
+      queryBuilder.andWhere('project.id IN (:...projectIds)', { projectIds });
     }
 
     if (query.releaseId) {
