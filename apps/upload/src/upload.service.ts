@@ -252,6 +252,20 @@ export class UploadService implements ProjectAccessService {
     });
   }
 
+  async getUserProjectIds(email: string): Promise<number[]> {
+    this.logger.verbose(`Getting all project IDs for user: ${email}`);
+    
+    const memberProjects = await this.memberProjectRepo.find({
+      select: { project: { id: true } },
+      relations: ['project'],
+      where: {
+        member: { email: email }
+      }
+    });
+
+    return memberProjects.map(mp => mp.project.id);
+  }
+
 
     
 }

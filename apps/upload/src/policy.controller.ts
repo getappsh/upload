@@ -1,25 +1,43 @@
-import { Controller, Logger } from '@nestjs/common';
-import { MessagePattern } from '@nestjs/microservices';
+import { Controller, Logger, Inject, UnauthorizedException, ExecutionContext } from '@nestjs/common';
+import { MessagePattern, Ctx, Payload } from '@nestjs/microservices';
 import { UploadTopics } from '@app/common/microservice-client/topics';
-import { RpcPayload } from '@app/common/microservice-client';
 import { CreatePolicyDto, UpdateRuleDto, RuleQueryDto, CreateRuleFieldDto } from '@app/common/rules/dto';
 import { PolicyService } from './policy.service';
-import { ValidateProjectAnyAccess, ValidateProjectListAccess } from '@app/common/utils/project-access';
+import { ValidateProjectAnyAccess, ValidateProjectListAccess, PROJECT_ACCESS_SERVICE, ProjectAccessService } from '@app/common/utils/project-access';
 
 @Controller()
 export class PolicyController {
   private readonly logger = new Logger(PolicyController.name);
 
-  constructor(private readonly policyService: PolicyService) {}
+  constructor(
+    private readonly policyService: PolicyService,
+    @Inject(PROJECT_ACCESS_SERVICE) private readonly uploadService: ProjectAccessService & { getUserProjectIds: (email: string) => Promise<number[]> },
+  ) {}
 
   /**
    * Get all policies
+   * Filters policies based on projects the user has access to
    */
-  @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.GET_POLICIES)
-  async getPolicies(@RpcPayload() query: RuleQueryDto) {
+  async getPolicies(@Payload() payload: any) {
     this.logger.log('Getting policies');
-    return this.policyService.listPolicies(query || {});
+    
+    // For payload v2, data structure is { headers: {...}, value: {...} }
+    const query = payload.value || payload || {};
+    const user = payload.headers?.user;
+    const userEmail = user?.email;
+    
+    if (!userEmail) {
+      this.logger.error('No user email found in request headers');
+      throw new UnauthorizedException('User authentication required to retrieve policies');
+    }
+    
+    // Get all project IDs the user has access to
+    const projectIds = await this.uploadService.getUserProjectIds(userEmail);
+    this.logger.log(`User ${userEmail} has access to ${projectIds.length} projects`);
+    
+    // Filter policies by user's projects
+    return this.policyService.listPolicies(query, projectIds);
   }
 
   /**
@@ -27,7 +45,7 @@ export class PolicyController {
    */
   @ValidateProjectListAccess('association.releases')
   @MessagePattern('getapp-upload.create-policy')
-  async createPolicy(@RpcPayload() createPolicyDto: CreatePolicyDto) {
+  async createPolicy(@Payload() createPolicyDto: CreatePolicyDto) {
     this.logger.log('Creating policy');
     return this.policyService.createPolicy(createPolicyDto);
   }
@@ -37,7 +55,7 @@ export class PolicyController {
    */
   @ValidateProjectAnyAccess()
   @MessagePattern('getapp-upload.get-policy')
-  async getPolicy(@RpcPayload() id: string) {
+  async getPolicy(@Payload() id: string) {
     this.logger.log(`Getting policy ${id}`);
     return this.policyService.getPolicy(id);
   }
@@ -53,7 +71,7 @@ export class PolicyController {
     return [];
   })
   @MessagePattern('getapp-upload.update-policy')
-  async updatePolicy(@RpcPayload() payload: { id: string; data: UpdateRuleDto }) {
+  async updatePolicy(@Payload() payload: { id: string; data: UpdateRuleDto }) {
     this.logger.log(`Updating policy ${payload.id}`);
     return this.policyService.updatePolicy(payload.id, payload.data);
   }
@@ -63,7 +81,7 @@ export class PolicyController {
    */
   @ValidateProjectAnyAccess()
   @MessagePattern('getapp-upload.delete-policy')
-  async deletePolicy(@RpcPayload() id: string) {
+  async deletePolicy(@Payload() id: string) {
     this.logger.log(`Deleting policy ${id}`);
     return this.policyService.deletePolicy(id);
   }
@@ -81,7 +99,7 @@ export class PolicyController {
    * Add a new rule field
    */
   @MessagePattern('getapp-upload.add-rule-field')
-  async addRuleField(@RpcPayload() fieldData: CreateRuleFieldDto) {
+  async addRuleField(@Payload() fieldData: CreateRuleFieldDto) {
     this.logger.log('Adding rule field');
     return this.policyService.addRuleField(fieldData);
   }
@@ -90,7 +108,7 @@ export class PolicyController {
    * Remove a rule field
    */
   @MessagePattern('getapp-upload.remove-rule-field')
-  async removeRuleField(@RpcPayload() fieldName: string) {
+  async removeRuleField(@Payload() fieldName: string) {
     this.logger.log(`Removing rule field ${fieldName}`);
     return this.policyService.removeRuleField(fieldName);
   }

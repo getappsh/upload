@@ -50,11 +50,11 @@ export class PolicyService {
   /**
    * Lists all policies with optional filters
    */
-  async listPolicies(query: RuleQueryDto) {
+  async listPolicies(query: RuleQueryDto, projectIds?: number[]) {
     // Force type to be policy
     query.type = RuleType.POLICY;
     
-    const rules = await this.ruleService.findAll(query);
+    const rules = await this.ruleService.findAll(query, projectIds);
     return rules.map(rule => this.ruleService.ruleEntityToDefinition(rule));
   }
 
