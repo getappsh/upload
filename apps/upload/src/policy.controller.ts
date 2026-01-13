@@ -31,8 +31,9 @@ export class PolicyController {
    */
   @ValidateProjectListAccess('association.releases')
   @MessagePattern('getapp-upload.create-policy')
-  async createPolicy(@Payload() createPolicyDto: CreatePolicyDto) {
+  async createPolicy(@Payload() Payload: any) {
     this.logger.log('Creating policy');
+    const { value: createPolicyDto , headers } = Payload ;
     return this.policyService.createPolicy(createPolicyDto);
   }
 
