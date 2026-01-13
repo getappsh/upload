@@ -1,13 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException, Inject } from '@nestjs/common';
 import { RuleService, RuleValidationService } from '@app/common/rules/services';
 import { CreatePolicyDto, UpdateRuleDto, RuleQueryDto, CreateRuleFieldDto } from '@app/common/rules/dto';
 import { RuleType } from '@app/common/rules/enums/rule.enums';
+import { PROJECT_ACCESS_SERVICE, ProjectAccessService } from '@app/common/utils/project-access';
 
 @Injectable()
 export class PolicyService {
   constructor(
     private readonly ruleService: RuleService,
     private readonly ruleValidationService: RuleValidationService,
+    @Inject(PROJECT_ACCESS_SERVICE) private readonly uploadService: ProjectAccessService & { getUserProjectIds: (email: string) => Promise<number[]> },
   ) {}
 
   /**
@@ -56,6 +58,19 @@ export class PolicyService {
     
     const rules = await this.ruleService.findAll(query, projectIds);
     return rules.map(rule => this.ruleService.ruleEntityToDefinition(rule));
+  }
+
+  /**
+   * Lists all policies for a specific user
+   * Filters by projects the user has access to
+   */
+  async listPoliciesForUser(query: RuleQueryDto, userEmail: string) {
+    if (!userEmail) {
+      throw new UnauthorizedException('User authentication required to retrieve policies');
+    }
+
+    const projectIds = await this.uploadService.getUserProjectIds(userEmail);
+    return this.listPolicies(query, projectIds);
   }
 
   /**

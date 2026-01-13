@@ -21,23 +21,9 @@ export class PolicyController {
   @MessagePattern(UploadTopics.GET_POLICIES)
   async getPolicies(@Payload() payload: any) {
     this.logger.log('Getting policies');
-    
-    // For payload v2, data structure is { headers: {...}, value: {...} }
     const query = payload.value || payload || {};
-    const user = payload.headers?.user;
-    const userEmail = user?.email;
-    
-    if (!userEmail) {
-      this.logger.error('No user email found in request headers');
-      throw new UnauthorizedException('User authentication required to retrieve policies');
-    }
-    
-    // Get all project IDs the user has access to
-    const projectIds = await this.uploadService.getUserProjectIds(userEmail);
-    this.logger.log(`User ${userEmail} has access to ${projectIds.length} projects`);
-    
-    // Filter policies by user's projects
-    return this.policyService.listPolicies(query, projectIds);
+    const userEmail = payload.headers?.user?.email;
+    return this.policyService.listPoliciesForUser(query, userEmail);
   }
 
   /**
