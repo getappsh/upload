@@ -45,6 +45,15 @@ export class PolicyService {
   }
 
   /**
+   * Deletes a policy with user access validation
+   */
+  async deletePolicyForUser(id: string, userEmail: string) {
+    const policy = await this.getPolicy(id);
+    await this.validateUserAccessToPolicy(policy, userEmail);
+    return this.ruleService.deleteRule(id);
+  }
+
+  /**
    * Gets a specific policy by ID
    */
   async getPolicy(id: string) {
@@ -56,24 +65,8 @@ export class PolicyService {
    * Gets a specific policy by ID with user access validation
    */
   async getPolicyForUser(id: string, userEmail: string) {
-    if (!userEmail) {
-      throw new UnauthorizedException('User authentication required to retrieve policy');
-    }
-
     const policy = await this.getPolicy(id);
-    const userProjectIds = await this.uploadService.getUserProjectIds(userEmail);
-    
-    // Get project IDs from policy's associated project names
-    const policyProjectNames = policy.association?.releases?.map(r => r.projectName) || [];
-    const policyProjectIds = await this.uploadService.getProjectIdsByNames(policyProjectNames);
-    
-    // Check if user has access to any of the policy's associated projects
-    const hasAccess = policyProjectIds.some(projectId => userProjectIds.includes(projectId));
-    
-    if (!hasAccess) {
-      throw new UnauthorizedException('You do not have access to this policy');
-    }
-
+    await this.validateUserAccessToPolicy(policy, userEmail);
     return policy;
   }
 
@@ -126,5 +119,28 @@ export class PolicyService {
     return firstValueFrom(
       this.deviceClient.send(DeviceTopics.REMOVE_RULE_FIELD, fieldName)
     );
+  }
+
+  /**
+   * Validates that a user has access to a policy's associated projects
+   * @throws UnauthorizedException if user is not authenticated or doesn't have access
+   */
+  private async validateUserAccessToPolicy(policy: any, userEmail: string): Promise<void> {
+    if (!userEmail) {
+      throw new UnauthorizedException('User authentication required to access policy');
+    }
+
+    const userProjectIds = await this.uploadService.getUserProjectIds(userEmail);
+    
+    // Get project IDs from policy's associated project names
+    const policyProjectNames = policy.association?.releases?.map(r => r.projectName) || [];
+    const policyProjectIds = await this.uploadService.getProjectIdsByNames(policyProjectNames);
+    
+    // Check if user has access to any of the policy's associated projects
+    const hasAccess = policyProjectIds.some(projectId => userProjectIds.includes(projectId));
+    
+    if (!hasAccess) {
+      throw new UnauthorizedException('You do not have access to this policy');
+    }
   }
 }

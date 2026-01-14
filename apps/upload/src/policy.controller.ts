@@ -69,11 +69,12 @@ export class PolicyController {
   /**
    * Delete a policy
    */
-  @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.DELETE_POLICY)
-  async deletePolicy(@Payload() id: string) {
+  async deletePolicy(@Payload() payload: any) {
+    const id = payload.value || payload;
+    const userEmail = payload.headers?.user?.email;
     this.logger.log(`Deleting policy ${id}`);
-    return this.policyService.deletePolicy(id);
+    return this.policyService.deletePolicyForUser(id, userEmail);
   }
 
   /**
