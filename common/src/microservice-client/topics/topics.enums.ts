@@ -32,6 +32,13 @@ export const UploadTopics = {
 
     // Rules - Policies
     GET_POLICIES: `getapp-upload.get-policies${region}`,
+    CREATE_POLICY: `getapp-upload.create-policy${region}`,
+    GET_POLICY: `getapp-upload.get-policy${region}`,
+    UPDATE_POLICY: `getapp-upload.update-policy${region}`,
+    DELETE_POLICY: `getapp-upload.delete-policy${region}`,
+    GET_RULE_FIELDS: `getapp-upload.get-rule-fields${region}`,
+    ADD_RULE_FIELD: `getapp-upload.add-rule-field${region}`,
+    REMOVE_RULE_FIELD: `getapp-upload.remove-rule-field${region}`,
 
 } as const
 
