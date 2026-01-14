@@ -111,9 +111,10 @@ export class RuleService {
   /**
    * Deletes a rule
    */
-  async deleteRule(id: string): Promise<void> {
+  async deleteRule(id: string): Promise<{ success: boolean; message: string }> {
     const rule = await this.findOneById(id);
     await this.ruleRepository.remove(rule);
+    return { success: true, message: 'Rule deleted successfully' };
   }
 
   /**
