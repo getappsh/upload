@@ -30,7 +30,7 @@ export class PolicyController {
    * Create a new policy
    */
   @ValidateProjectListAccess('association.releases')
-  @MessagePattern('getapp-upload.create-policy')
+  @MessagePattern(UploadTopics.CREATE_POLICY)
   async createPolicy(@Payload() Payload: any) {
     this.logger.log('Creating policy');
     const { value: createPolicyDto , headers } = Payload ;
@@ -40,7 +40,7 @@ export class PolicyController {
   /**
    * Get a specific policy by ID
    */
-  @MessagePattern('getapp-upload.get-policy')
+  @MessagePattern(UploadTopics.GET_POLICY)
   async getPolicy(@Payload() payload: any) {
     const id = payload.value || payload;
     const userEmail = payload.headers?.user?.email;
@@ -59,7 +59,7 @@ export class PolicyController {
     }
     return [];
   })
-  @MessagePattern('getapp-upload.update-policy')
+  @MessagePattern(UploadTopics.UPDATE_POLICY)
   async updatePolicy(@Payload() payload: any) {
     const data = payload.value || payload;
     this.logger.log(`Updating policy ${data.id}`);
@@ -70,7 +70,7 @@ export class PolicyController {
    * Delete a policy
    */
   @ValidateProjectAnyAccess()
-  @MessagePattern('getapp-upload.delete-policy')
+  @MessagePattern(UploadTopics.DELETE_POLICY)
   async deletePolicy(@Payload() id: string) {
     this.logger.log(`Deleting policy ${id}`);
     return this.policyService.deletePolicy(id);
@@ -79,7 +79,7 @@ export class PolicyController {
   /**
    * Get available rule fields
    */
-  @MessagePattern('getapp-upload.get-rule-fields')
+  @MessagePattern(UploadTopics.GET_RULE_FIELDS)
   async getAvailableFields() {
     this.logger.log('Getting available rule fields');
     return this.policyService.getAvailableFields();
@@ -88,7 +88,7 @@ export class PolicyController {
   /**
    * Add a new rule field
    */
-  @MessagePattern('getapp-upload.add-rule-field')
+  @MessagePattern(UploadTopics.ADD_RULE_FIELD)
   async addRuleField(@Payload() fieldData: CreateRuleFieldDto) {
     this.logger.log('Adding rule field');
     return this.policyService.addRuleField(fieldData);
@@ -97,7 +97,7 @@ export class PolicyController {
   /**
    * Remove a rule field
    */
-  @MessagePattern('getapp-upload.remove-rule-field')
+  @MessagePattern(UploadTopics.REMOVE_RULE_FIELD)
   async removeRuleField(@Payload() fieldName: string) {
     this.logger.log(`Removing rule field ${fieldName}`);
     return this.policyService.removeRuleField(fieldName);
