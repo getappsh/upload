@@ -33,6 +33,11 @@ import { PolicyController } from './policy.controller';
       type: MicroserviceType.OFFERING,
       id: 'upload'
     }),
+    MicroserviceModule.register({
+      name: MicroserviceName.DEVICE_SERVICE,
+      type: MicroserviceType.DEVICE,
+      id: 'upload'
+    }),
     ApmModule,
     DatabaseModule,
     RuleModule,

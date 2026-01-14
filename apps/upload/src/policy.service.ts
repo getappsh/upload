@@ -1,15 +1,18 @@
 import { Injectable, UnauthorizedException, Inject } from '@nestjs/common';
-import { RuleService, RuleValidationService } from '@app/common/rules/services';
+import { RuleService } from '@app/common/rules/services';
 import { CreatePolicyDto, UpdateRuleDto, RuleQueryDto, CreateRuleFieldDto } from '@app/common/rules/dto';
 import { RuleType } from '@app/common/rules/enums/rule.enums';
 import { PROJECT_ACCESS_SERVICE, ProjectAccessService } from '@app/common/utils/project-access';
+import { MicroserviceClient, MicroserviceName } from '@app/common/microservice-client';
+import { DeviceTopics } from '@app/common/microservice-client/topics';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class PolicyService {
   constructor(
     private readonly ruleService: RuleService,
-    private readonly ruleValidationService: RuleValidationService,
     @Inject(PROJECT_ACCESS_SERVICE) private readonly uploadService: ProjectAccessService & { getUserProjectIds: (email: string) => Promise<number[]>; getProjectIdsByNames: (names: string[]) => Promise<number[]> },
+    @Inject(MicroserviceName.DEVICE_SERVICE) private readonly deviceClient: MicroserviceClient,
   ) {}
 
   /**
@@ -99,23 +102,29 @@ export class PolicyService {
   }
 
   /**
-   * Gets all available rule fields
+   * Gets all available rule fields from discovery service via Kafka
    */
   async getAvailableFields() {
-    return this.ruleValidationService.getAvailableFields();
+    return firstValueFrom(
+      this.deviceClient.send(DeviceTopics.GET_RULE_FIELDS, {})
+    );
   }
 
   /**
-   * Adds a new rule field
+   * Adds a new rule field via discovery service via Kafka
    */
   async addRuleField(fieldData: any) {
-    return this.ruleValidationService.addRuleField(fieldData);
+    return firstValueFrom(
+      this.deviceClient.send(DeviceTopics.ADD_RULE_FIELD, fieldData)
+    );
   }
 
   /**
-   * Removes a rule field
+   * Removes a rule field via discovery service via Kafka
    */
   async removeRuleField(fieldName: string) {
-    return this.ruleValidationService.removeRuleField(fieldName);
+    return firstValueFrom(
+      this.deviceClient.send(DeviceTopics.REMOVE_RULE_FIELD, fieldName)
+    );
   }
 }
