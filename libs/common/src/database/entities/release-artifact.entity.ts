@@ -40,7 +40,4 @@ export class ReleaseArtifactEntity extends BaseEntity {
 
   @Column({ name: 'arguments', type: 'text', nullable: true, default: null})
   arguments?: string | null
-
-  @Column({ name: 'sha256', type: 'text', nullable: true})
-  sha256?: string
 }

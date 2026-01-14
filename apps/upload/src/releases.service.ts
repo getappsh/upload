@@ -294,20 +294,6 @@ export class ReleaseService {
     })
     if (release) {
       this.logger.debug(`onFileCreate: File is part of release: ${release.version}, of project: ${release.project.id}`);
-      
-      // Sync sha256 from file_upload to release_artifact if present
-      const updateData: any = {};
-      if (fileUpload.sha256) {
-        updateData.sha256 = fileUpload.sha256;
-      }
-      
-      if (Object.keys(updateData).length > 0) {
-        await this.artifactRepo.update(
-          { fileUpload: { id: fileUpload.id } },
-          updateData
-        );
-      }
-      
       this.refreshReleaseState({ projectId: release.project.id, version: release.version } as ReleaseParams);
     }
   }
@@ -549,34 +535,18 @@ export class ReleaseService {
         artifactDto.name = artifact.fileUpload.fileName;
         artifactDto.size = artifact.fileUpload.size || 0;
         
-        // Use sha256 field, calculate from bucket if missing
+        // Use sha256 from file_upload, calculate from bucket if missing
         if (artifact.fileUpload.sha256) {
           artifactDto.sha256 = artifact.fileUpload.sha256;
-          // Save to release_artifact if not already there
-          if (!artifact.sha256) {
-            await this.artifactRepo.update(
-              { id: artifact.id },
-              { sha256: artifactDto.sha256 }
-            );
-          }
-        } else if (artifact.sha256) {
-          // Use sha256 from release_artifact if available
-          artifactDto.sha256 = artifact.sha256;
         } else {
           this.logger.warn(`SHA256 missing for artifact ${artifact.fileUpload.fileName}, calculating from bucket`);
           try {
             artifactDto.sha256 = await this.fileUploadService.calculateSha256FromBucket(bucketName, artifact.fileUpload.objectKey);
-            // Save it to both DB tables for future use
-            await Promise.all([
-              this.fileUploadService['uploadRepo'].update(
-                { id: artifact.fileUpload.id },
-                { sha256: artifactDto.sha256 }
-              ),
-              this.artifactRepo.update(
-                { id: artifact.id },
-                { sha256: artifactDto.sha256 }
-              )
-            ]);
+            // Save it to file_upload table for future use
+            await this.fileUploadService['uploadRepo'].update(
+              { id: artifact.fileUpload.id },
+              { sha256: artifactDto.sha256 }
+            );
           } catch (error) {
             this.logger.error(`Failed to calculate SHA256 for ${artifact.fileUpload.fileName}: ${error.message}`);
             artifactDto.sha256 = '';
@@ -731,7 +701,10 @@ export class ReleaseService {
               error: error.message,
               progress: -1
             }
-          ).catch(err => this.logger.error(`Failed to update file_upload error: ${err.message}`));
+          ).catch(err => {
+            this.logger.error(`Failed to update file_upload error: ${err.message}`);
+            throw new BadRequestException(`Failed to update file_upload status: ${err.message}`);
+          });
         }
       })
     );
@@ -847,10 +820,6 @@ export class ReleaseService {
       savedFileUpload.sha256 = calculatedChecksum;
       savedFileUpload.progress = 100;
       await this.fileUploadService['uploadRepo'].save(savedFileUpload);
-
-      // Update release artifact with sha256
-      artifactEntity.sha256 = calculatedChecksum;
-      await this.artifactRepo.save(artifactEntity);
 
       this.logger.log(`Successfully imported artifact: ${artifact.name}`);
 

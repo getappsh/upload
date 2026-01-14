@@ -141,6 +141,11 @@ export class ReleaseArtifactDto {
   @IsString()
   error?: string
 
+  @ApiProperty({ required: false, type: 'string', description: 'SHA256 hash of the file' })
+  @IsOptional()
+  @IsString()
+  sha256?: string
+
 
   static fromEntity(artifact: ReleaseArtifactEntity): ReleaseArtifactDto {
     const dto = new ReleaseArtifactDto();
@@ -155,6 +160,7 @@ export class ReleaseArtifactDto {
     dto.size = artifact?.fileUpload?.size
     dto.progress = artifact?.fileUpload?.progress ?? 0
     dto.error = artifact?.fileUpload?.error
+    dto.sha256 = artifact?.fileUpload?.sha256
     dto.arguments = artifact?.arguments;
     dto.isExecutable = artifact?.isExecutable;
 

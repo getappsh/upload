@@ -281,20 +281,7 @@ export class FileUploadService {
       await this.uploadRepo.update({ id: file.id }, updateData);
       this.logger.debug(`File processing results saved to DB: ${objectKey}`);
       
-      // Directly sync SHA256 to release_artifact table if calculated
-      if (result.sha256) {
-        try {
-          await this.artifactRepo.update(
-            { fileUpload: { id: file.id } },
-            { sha256: result.sha256 }
-          );
-          this.logger.debug(`SHA256 synced to release_artifact for fileUpload ID: ${file.id}`);
-        } catch (error) {
-          this.logger.warn(`Failed to sync SHA256 to release_artifact for fileUpload ID: ${file.id}: ${error.message}`);
-        }
-      }
-      
-      // Emit fileCreated event again to sync sha256 and other updates to related tables
+      // Emit fileCreated event to refresh release state after file processing
       if (result.sha256) {
         const updatedFile = await this.getFileByObjectKey(objectKey);
         this.emitter.emit("fileCreated", updatedFile);
