@@ -8,10 +8,6 @@ export class ExportArtifactDto {
   @IsNotEmpty()
   name: string;
 
-  @ApiProperty({ description: 'Platform for the artifact (e.g., linux, macos, windows)' })
-  @IsString()
-  @IsNotEmpty()
-  platform: string;
 
   @ApiProperty({ description: 'File size in bytes', type: 'integer', format: 'int64' })
   size: number;
@@ -42,10 +38,6 @@ export class ExportDockerImageDto {
   @IsNotEmpty()
   imageUrl: string;
 
-  @ApiProperty({ description: 'Platform for the docker image', required: false })
-  @IsString()
-  @IsOptional()
-  platform?: string;
 
   @ApiProperty({ description: 'Additional metadata', required: false })
   @IsOptional()

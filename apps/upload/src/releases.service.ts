@@ -547,7 +547,6 @@ export class ReleaseService {
       if (artifact.type === ArtifactTypeEnum.FILE && artifact.fileUpload) {
         const artifactDto = new ExportArtifactDto();
         artifactDto.name = artifact.fileUpload.fileName;
-        artifactDto.platform = artifact.metadata?.platform || 'unknown';
         artifactDto.size = artifact.fileUpload.size || 0;
         
         // Use sha256 field, calculate from bucket if missing
@@ -591,7 +590,6 @@ export class ReleaseService {
         const dockerDto = new ExportDockerImageDto();
         dockerDto.name = artifact.artifactName;
         dockerDto.imageUrl = artifact.dockerImageUrl;
-        dockerDto.platform = artifact.metadata?.platform || '';
         dockerDto.metadata = artifact.metadata || {};
         exportDto.dockerImages.push(dockerDto);
       }
@@ -682,7 +680,7 @@ export class ReleaseService {
 
     // Start background file artifact imports (don't await)
     if (dto.artifacts && dto.artifacts.length > 0) {
-      this.importArtifactsInBackground(savedRelease, dto.artifacts, userId, bucketName).catch(error => {
+      this.importArtifactsInBackground(savedRelease, dto.artifacts, 'release', bucketName).catch(error => {
         this.logger.error(`Background artifact import failed: ${error.message}`);
       });
     }
@@ -722,7 +720,7 @@ export class ReleaseService {
           // Update file_upload to save the error message and set progress to -1
           const projectId = typeof release.project === 'object' && 'id' in release.project ? release.project.id : release.project;
           const dtoForKey = new CreateFileUploadUrlDto();
-          dtoForKey.userId = userId;
+          dtoForKey.userId = 'release';
           dtoForKey.fileName = artifact.name;
           dtoForKey.objectKey = `${projectId}/${release.version}`;
           const objectKey = this.fileUploadService.createObjectKey(dtoForKey);
@@ -770,7 +768,6 @@ export class ReleaseService {
     const artifactEntity = new ReleaseArtifactEntity();
     artifactEntity.type = ArtifactTypeEnum.FILE;
     artifactEntity.artifactName = artifact.name;
-    artifactEntity.metadata = artifact.metadata || { platform: artifact.platform };
     artifactEntity.release = release;
     artifactEntity.fileUpload = savedFileUpload;
     artifactEntity.isInstallationFile = true;
