@@ -30,10 +30,12 @@ export class ReleaseService {
     this.fileUploadService.onFileDelete(file => this.onFileDelete(file));
   }
 
-  async setRelease(dto: SetReleaseDto): Promise<ReleaseDto> {
+  async setRelease(dto: SetReleaseDto, userEmail?: string): Promise<ReleaseDto> {
     this.logger.log(`Setting release for project: ${dto.projectId}, version: ${dto.version}`);
 
     const releaseEntity = await this.releaseRepo.findOneBy({ project: { id: dto.projectId }, version: dto.version }) ?? this.releaseRepo.create();
+    
+    const isNewRelease = !releaseEntity.catalogId;
 
     releaseEntity.project = { id: dto.projectId } as unknown as ProjectEntity;
     releaseEntity.version = dto.version;
@@ -46,6 +48,14 @@ export class ReleaseService {
       releaseEntity.status = ReleaseStatusEnum.IN_REVIEW
     }
     releaseEntity.requiredRegulationsCount = await this.regulationRepo.count({ where: { project: { id: dto.projectId } } })
+
+    // Set createdBy for new releases, updatedBy for all releases
+    if (userEmail) {
+      if (isNewRelease) {
+        releaseEntity.createdBy = userEmail;
+      }
+      releaseEntity.updatedBy = userEmail;
+    }
 
     if (dto.dependencies) {
       releaseEntity.dependencies = await this.getAndValidateDependenciesForRelease(dto, dto.dependencies);
