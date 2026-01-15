@@ -5,6 +5,23 @@ import { ReleaseArtifactDto } from "./release-artifact.dto";
 import { Type } from "class-transformer";
 import { ProjectIdentifierParams } from "@app/common/dto/project-management";
 
+export class ReleasePolicyDto {
+  @ApiProperty({ description: 'Policy rule ID' })
+  id: string;
+
+  @ApiProperty({ description: 'Policy name' })
+  name: string;
+
+  @ApiProperty({ description: 'Policy description', required: false })
+  description?: string;
+
+  @ApiProperty({ description: 'Policy is active' })
+  isActive: boolean;
+
+  @ApiProperty({ description: 'Policy rule definition' })
+  rule: any;
+}
+
 export class SetReleaseDto {
 
   projectIdentifier: string | number
@@ -124,6 +141,9 @@ export class DetailedReleaseDto extends ReleaseDto {
   @ApiProperty({ type: ReleaseDto, isArray: true, required: false })
   dependencies: ReleaseDto[]
 
+  @ApiProperty({ type: ReleasePolicyDto, isArray: true, required: false, description: 'Policies associated with this release' })
+  policies?: ReleasePolicyDto[];
+
 
   static fromEntity(release: ReleaseEntity): DetailedReleaseDto {
     const baseDto = super.fromEntity(release);
@@ -133,6 +153,15 @@ export class DetailedReleaseDto extends ReleaseDto {
 
     dto.artifacts = release?.artifacts?.map(art => ReleaseArtifactDto.fromEntity(art))
     dto.dependencies = release?.dependencies?.map(dep => ReleaseDto.fromEntity(dep))
+    dto.policies = release?.policyAssociations?.map(policyAssoc => {
+      const policy = new ReleasePolicyDto();
+      policy.id = policyAssoc.rule.id;
+      policy.name = policyAssoc.rule.name;
+      policy.description = policyAssoc.rule.description;
+      policy.isActive = policyAssoc.rule.isActive;
+      policy.rule = policyAssoc.rule.rule;
+      return policy;
+    }) ?? [];
 
     return dto
 
