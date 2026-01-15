@@ -74,8 +74,10 @@ export class PolicyService {
    * Lists all policies with optional filters
    */
   async listPolicies(query: RuleQueryDto, projectIds?: number[]) {
-    // Force type to be policy
-    query.type = RuleType.POLICY;
+    // Force type to be policy if not already set
+    if (!query.type) {
+      query.type = RuleType.POLICY;
+    }
     
     const rules = await this.ruleService.findAll(query, projectIds);
     return rules.map(rule => this.ruleService.ruleEntityToDefinition(rule));
@@ -92,6 +94,19 @@ export class PolicyService {
 
     const projectIds = await this.uploadService.getUserProjectIds(userEmail);
     return this.listPolicies(query, projectIds);
+  }
+
+  /**
+   * Gets all policies associated with a specific release by catalog ID
+   */
+  async getPoliciesForRelease(catalogId: string) {
+    const query: RuleQueryDto = {
+      releaseId: catalogId,
+      type: RuleType.POLICY,
+    };
+    
+    const rules = await this.ruleService.findAll(query);
+    return rules.map(rule => this.ruleService.ruleEntityToDefinition(rule));
   }
 
   /**

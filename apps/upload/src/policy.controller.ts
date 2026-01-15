@@ -27,6 +27,16 @@ export class PolicyController {
   }
 
   /**
+   * Get policies associated with a specific release
+   */
+  @MessagePattern(UploadTopics.GET_POLICIES_FOR_RELEASE)
+  async getPoliciesForRelease(@Payload() payload: any) {
+    const catalogId = payload.value || payload;
+    this.logger.log(`Getting policies for release ${catalogId}`);
+    return this.policyService.getPoliciesForRelease(catalogId);
+  }
+
+  /**
    * Create a new policy
    */
   @ValidateProjectListAccess('association.releases')

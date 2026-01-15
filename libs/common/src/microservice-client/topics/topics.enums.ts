@@ -32,6 +32,7 @@ export const UploadTopics = {
 
     // Rules - Policies
     GET_POLICIES: `getapp-upload.get-policies${region}`,
+    GET_POLICIES_FOR_RELEASE: `getapp-upload.get-policies-for-release${region}`,
     CREATE_POLICY: `getapp-upload.create-policy${region}`,
     GET_POLICY: `getapp-upload.get-policy${region}`,
     UPDATE_POLICY: `getapp-upload.update-policy${region}`,
