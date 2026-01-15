@@ -200,6 +200,7 @@ export class ReleaseService {
 
       const uploadDto = {
         fileName: artifact.artifactName,
+        // TODO consider adding version id to object key to avoid overwriting same version of other branches
         objectKey: `${artifact.projectId}/${artifact.version}`,
         userId: 'release',
       } as CreateFileUploadUrlDto
