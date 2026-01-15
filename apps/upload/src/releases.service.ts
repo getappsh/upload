@@ -106,7 +106,8 @@ export class ReleaseService {
         artifacts: { fileUpload: true },
         dependencies: { project: true },
         dependentReleases: { project: true },
-        project: true
+        project: true,
+        policyAssociations: { rule: true }
       }
     })
   }
