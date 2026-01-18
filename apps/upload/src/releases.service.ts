@@ -267,7 +267,10 @@ export class ReleaseService {
       this.fileUploadService.deleteItemRow(artifact.fileUpload.id)
         .catch(err => this.logger.error(`Error deleting file upload row from the db: ${artifact.fileUpload.id}, error: ${err}`));
     } else {
-      await this.onFileDelete(artifact.fileUpload);
+      // For docker images, handle file upload if exists, then delete the artifact
+      if (artifact.fileUpload) {
+        await this.onFileDelete(artifact.fileUpload);
+      }
       await this.artifactRepo.delete({ id: params.artifactId })
     }
 
