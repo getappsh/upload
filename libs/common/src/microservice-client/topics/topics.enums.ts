@@ -40,6 +40,10 @@ export const UploadTopics = {
     GET_RULE_FIELDS: `getapp-upload.get-rule-fields${region}`,
     ADD_RULE_FIELD: `getapp-upload.add-rule-field${region}`,
     REMOVE_RULE_FIELD: `getapp-upload.remove-rule-field${region}`,
+    
+    // Export/Import
+    EXPORT_RELEASE: `getapp-upload.export-release${region}`,
+    IMPORT_RELEASE: `getapp-upload.import-release${region}`,
 
 } as const
 
