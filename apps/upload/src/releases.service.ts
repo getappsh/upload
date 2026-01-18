@@ -683,7 +683,7 @@ export class ReleaseService {
         } catch (error) {
           this.logger.error(`Error importing artifact ${artifact.name} in background: ${error.message}`);
           
-          // Update file_upload to save the error message and set progress to -1
+          // Update file_upload to save the error message 
           const projectId = typeof release.project === 'object' && 'id' in release.project ? release.project.id : release.project;
           const dtoForKey = new CreateFileUploadUrlDto();
           dtoForKey.userId = 'release';
@@ -695,7 +695,6 @@ export class ReleaseService {
             { 
               status: FileUPloadStatusEnum.ERROR,
               error: error.message,
-              progress: -1
             }
           ).catch(err => {
             this.logger.error(`Failed to update file_upload error: ${err.message}`);
