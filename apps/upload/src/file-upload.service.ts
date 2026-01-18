@@ -204,6 +204,7 @@ export class FileUploadService {
     }
 
     if (file.status === FileUPloadStatusEnum.UPLOADED && this.configService.get('COSIGN_DO_SIGN_FILES') === 'true') {
+      // TODO wait for the signing to complete before updating the DB or refreshing after signing
       this.signFile(file.objectKey).catch(err => {
         this.logger.error(`Error signing file: ${file.objectKey}, error: ${err}`);
       });
