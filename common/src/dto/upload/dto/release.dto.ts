@@ -108,6 +108,12 @@ export class ReleaseDto {
   @ApiProperty({ required: false })
   releasedAt?: Date
 
+  @ApiProperty({ required: false })
+  createdBy?: string
+
+  @ApiProperty({ required: false })
+  updatedBy?: string
+
   static fromEntity(release: ReleaseEntity): ReleaseDto {
     const dto = new ReleaseDto();
     dto.version = release.version;
@@ -124,6 +130,8 @@ export class ReleaseDto {
     dto.compliantRegulationsCount = release.compliantRegulationsCount;
     dto.latest = release.latest;
     dto.releasedAt = release.releasedAt ?? undefined;
+    dto.createdBy = release.createdBy ?? undefined;
+    dto.updatedBy = release.updatedBy ?? undefined;
 
     return dto;
   }
