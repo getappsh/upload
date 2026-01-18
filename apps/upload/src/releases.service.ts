@@ -13,9 +13,6 @@ import { lastValueFrom } from "rxjs";
 import { ExportReleaseDto, ExportArtifactDto, ExportDockerImageDto, ExportDependencyDto, ImportReleaseDto, ImportReleaseResponseDto, ArtifactWarningDto } from "@app/common/dto/delivery";
 import { MinioClientService } from "@app/common/AWS/minio-client.service";
 import { ConfigService } from "@nestjs/config";
-import { HttpService } from "@nestjs/axios";
-import * as crypto from 'crypto';
-import { PassThrough } from "stream";
 import { ClsService } from 'nestjs-cls';
 
 
@@ -33,7 +30,6 @@ export class ReleaseService {
     private readonly regulationService: RegulationStatusService,
     private readonly minioClient: MinioClientService,
     private readonly configService: ConfigService,
-    private readonly httpService: HttpService,
     private readonly cls: ClsService,
   ) {
 
@@ -743,96 +739,23 @@ export class ReleaseService {
     artifactEntity.artifactName = artifact.name;
     artifactEntity.release = release;
     artifactEntity.fileUpload = savedFileUpload;
+    //todo: get this property from dto
     artifactEntity.isInstallationFile = true;
     await this.artifactRepo.save(artifactEntity);
 
     try {
-      // Update status to UPLOADING with 0% progress
-      savedFileUpload.status = FileUPloadStatusEnum.UPLOADING;
-      savedFileUpload.progress = 0;
-      await this.fileUploadService['uploadRepo'].save(savedFileUpload);
-
-
-      // Download file from URL
-      this.logger.log(`Downloading artifact from URL: ${artifact.downloadUrl}`);
-      const response = await this.httpService.axiosRef.get(artifact.downloadUrl, {
-        responseType: 'stream',
-        timeout: 300000, // 5 minutes timeout
-      });
-
-      const totalSize = parseInt(response.headers['content-length'] || '0', 10);
-      let downloadedSize = 0;
-
-      // Create a pass-through stream to calculate checksum while uploading
-      const passThroughStream = new PassThrough();
-      const hash = crypto.createHash('sha256');
-
-      passThroughStream.on('data', async (chunk) => {
-        hash.update(chunk);
-        downloadedSize += chunk.length;
-        
-        // Update progress every 5% or for small files, every chunk
-        if (totalSize > 0) {
-          const progress = Math.floor((downloadedSize / totalSize) * 100);
-          if (progress % 5 === 0 || totalSize < 1024 * 1024) { // Update every 5% or if file < 1MB
-            savedFileUpload.progress = progress;
-            await this.fileUploadService['uploadRepo'].save(savedFileUpload);
-          }
-        }
-      });
-
-      // Pipe the response to the pass-through stream
-      response.data.pipe(passThroughStream);
-
-      // Upload to MinIO
-      await this.minioClient['client'].putObject(
-        bucketName,
-        objectKey,
-        passThroughStream
+      // Use fileUploadService to handle the entire download and upload process
+      await this.fileUploadService.uploadFileFromUrl(
+        savedFileUpload,
+        artifact.downloadUrl,
+        artifact.sha256
       );
-
-      this.logger.log(`Uploaded artifact ${artifact.name} to bucket`);
-
-      // Calculate final checksum
-      const calculatedChecksum = hash.digest('hex');
-      
-      // Validate checksum
-      if (artifact.sha256 && calculatedChecksum !== artifact.sha256) {
-        this.logger.warn(`Checksum mismatch for artifact ${artifact.name}. Expected: ${artifact.sha256}, Got: ${calculatedChecksum}`);
-        
-        // Delete the uploaded file and mark as failed
-        await this.minioClient.deleteObjects(bucketName, objectKey);
-        savedFileUpload.status = FileUPloadStatusEnum.ERROR;
-        savedFileUpload.error = 'Checksum mismatch';
-        savedFileUpload.progress = -1;
-        await this.fileUploadService['uploadRepo'].save(savedFileUpload);
-        
-        throw new BadRequestException(`Checksum mismatch for artifact ${artifact.name}`);
-      }
-
-      // Get file stats
-      const stats = await this.minioClient.getObjectStat(bucketName, objectKey);
-
-      // Update file upload entity to UPLOADED
-      savedFileUpload.status = FileUPloadStatusEnum.UPLOADED;
-      savedFileUpload.size = stats?.size || artifact.size;
-      savedFileUpload.uploadAt = new Date();
-      savedFileUpload.sha256 = calculatedChecksum;
-      savedFileUpload.progress = 100;
-      await this.fileUploadService['uploadRepo'].save(savedFileUpload);
 
       this.logger.log(`Successfully imported artifact: ${artifact.name}`);
 
     } catch (error) {
       this.logger.error(`Failed to import artifact ${artifact.name}: ${error.message}`);
-      
-      // Mark upload as failed by setting status to ERROR and progress to -1
-      savedFileUpload.status = FileUPloadStatusEnum.ERROR;
-      savedFileUpload.error = error.message;
-      savedFileUpload.progress = -1;
-      await this.fileUploadService['uploadRepo'].save(savedFileUpload);
-      
-      throw new BadRequestException(`Failed to download or upload artifact ${artifact.name}: ${error.message}`);
+      throw error;
     }
   }
 }

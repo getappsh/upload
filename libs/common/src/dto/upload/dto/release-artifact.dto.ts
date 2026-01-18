@@ -124,9 +124,9 @@ export class ReleaseArtifactDto {
   @ApiProperty({ 
     required: false, 
     type: 'number', 
-    minimum: -1, 
+    minimum: 0, 
     maximum: 100, 
-    description: 'Upload/download progress percentage (-1-100) where -1 indicates an error' 
+    description: 'Upload/download progress percentage (0-100). Check status field for errors.' 
   })
   @IsOptional()
   @IsNumber()
@@ -135,7 +135,7 @@ export class ReleaseArtifactDto {
   @ApiProperty({ 
     required: false, 
     type: 'string',
-    description: 'Error message when progress is -1' 
+    description: 'Error message when status indicates an error' 
   })
   @IsOptional()
   @IsString()

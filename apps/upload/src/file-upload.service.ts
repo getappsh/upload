@@ -1,14 +1,16 @@
 import { FileUploadEntity, FileUPloadStatusEnum, ReleaseArtifactEntity } from "@app/common/database/entities";
 import { CreateFileUploadUrlDto, FileUploadUrlDto, UpdateFileUploadDto } from "@app/common/dto/upload";
-import { ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, LessThanOrEqual, Repository } from "typeorm";
 import { MinioClientService } from "@app/common/AWS/minio-client.service";
 import { TimeoutRepeatTask } from "@app/common/safe-cron/timeout-repeated-task.decorator";
-import stream from 'stream';
+import * as stream from 'stream';
 import { EventEmitter } from 'eventemitter3';
 import { FileProcessingService } from "@app/common/AWS/file-processing.service";
+import { HttpService } from "@nestjs/axios";
+import * as crypto from 'crypto';
 
 
 @Injectable()
@@ -25,6 +27,7 @@ export class FileUploadService {
     private readonly fileProcessingService: FileProcessingService,
     @InjectRepository(FileUploadEntity) private readonly uploadRepo: Repository<FileUploadEntity>,
     @InjectRepository(ReleaseArtifactEntity) private readonly artifactRepo: Repository<ReleaseArtifactEntity>,
+    private readonly httpService: HttpService,
   ) { }
 
 
@@ -309,7 +312,107 @@ export class FileUploadService {
     return result.sha256!;
   }
 
+  /**
+   * Upload a file from a URL to MinIO bucket
+   * Downloads file from URL, calculates SHA256 checksum, and uploads to MinIO
+   * @param fileUpload - The FileUploadEntity to update
+   * @param downloadUrl - The URL to download the file from
+   * @param expectedSha256 - Optional expected SHA256 checksum for validation
+   * @throws BadRequestException if download fails, upload fails, or checksum mismatch
+   */
+  async uploadFileFromUrl(
+    fileUpload: FileUploadEntity,
+    downloadUrl: string,
+    expectedSha256?: string
+  ): Promise<void> {
+    this.logger.log(`Uploading file ${fileUpload.fileName} from URL: ${downloadUrl}`);
 
+    try {
+      // Update status to UPLOADING with 0% progress
+      fileUpload.status = FileUPloadStatusEnum.UPLOADING;
+      fileUpload.progress = 0;
+      await this.uploadRepo.save(fileUpload);
+
+      // Download file from URL
+      this.logger.log(`Downloading file from URL: ${downloadUrl}`);
+      const response = await this.httpService.axiosRef.get(downloadUrl, {
+        responseType: 'stream',
+        timeout: 300000, // 5 minutes timeout
+      });
+
+      const totalSize = parseInt(response.headers['content-length'] || '0', 10);
+      let downloadedSize = 0;
+
+      // Create a pass-through stream to calculate checksum while uploading
+      const passThroughStream = new stream.PassThrough();
+      const hash = crypto.createHash('sha256');
+
+      passThroughStream.on('data', async (chunk) => {
+        hash.update(chunk);
+        downloadedSize += chunk.length;
+        
+        // Update progress every 5% or for small files, every chunk
+        if (totalSize > 0) {
+          const progress = Math.floor((downloadedSize / totalSize) * 100);
+          if (progress % 5 === 0 || totalSize < 1024 * 1024) { // Update every 5% or if file < 1MB
+            fileUpload.progress = progress;
+            await this.uploadRepo.save(fileUpload);
+          }
+        }
+      });
+
+      // Pipe the response to the pass-through stream
+      response.data.pipe(passThroughStream);
+
+      // Upload to MinIO
+      await this.minioClient['client'].putObject(
+        fileUpload.bucketName,
+        fileUpload.objectKey,
+        passThroughStream
+      );
+
+      this.logger.log(`Uploaded file ${fileUpload.fileName} to bucket`);
+
+      // Calculate final checksum
+      const calculatedChecksum = hash.digest('hex');
+      
+      // Validate checksum if provided
+      if (expectedSha256 && calculatedChecksum !== expectedSha256) {
+        this.logger.warn(`Checksum mismatch for file ${fileUpload.fileName}. Expected: ${expectedSha256}, Got: ${calculatedChecksum}`);
+        
+        // Delete the uploaded file and mark as failed
+        await this.minioClient.deleteObjects(fileUpload.bucketName, fileUpload.objectKey);
+        fileUpload.status = FileUPloadStatusEnum.ERROR;
+        fileUpload.error = 'Checksum mismatch';
+        await this.uploadRepo.save(fileUpload);
+        
+        throw new BadRequestException(`Checksum mismatch for file ${fileUpload.fileName}`);
+      }
+
+      // Get file stats
+      const stats = await this.minioClient.getObjectStat(fileUpload.bucketName, fileUpload.objectKey);
+
+      // Update file upload entity to UPLOADED
+      fileUpload.status = FileUPloadStatusEnum.UPLOADED;
+      fileUpload.size = stats?.size || totalSize;
+      fileUpload.uploadAt = new Date();
+      fileUpload.sha256 = calculatedChecksum;
+      fileUpload.progress = 100;
+      await this.uploadRepo.save(fileUpload);
+
+      this.logger.log(`Successfully uploaded file from URL: ${fileUpload.fileName}`);
+
+    } catch (error) {
+      this.logger.error(`Failed to upload file ${fileUpload.fileName} from URL: ${error.message}`);
+      
+      // Mark upload as failed by setting status to ERROR
+      fileUpload.status = FileUPloadStatusEnum.ERROR;
+      fileUpload.error = error.message;
+      await this.uploadRepo.save(fileUpload);
+      
+      throw new BadRequestException(`Failed to download or upload file ${fileUpload.fileName}: ${error.message}`);
+    }
+  }
 
   // TODO sync deleted files
   private async syncDB() {
