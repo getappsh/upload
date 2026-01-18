@@ -1,14 +1,16 @@
-import { FileUploadEntity, FileUPloadStatusEnum } from "@app/common/database/entities";
+import { FileUploadEntity, FileUPloadStatusEnum, ReleaseArtifactEntity } from "@app/common/database/entities";
 import { CreateFileUploadUrlDto, FileUploadUrlDto, UpdateFileUploadDto } from "@app/common/dto/upload";
-import { ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, LessThanOrEqual, Repository } from "typeorm";
 import { MinioClientService } from "@app/common/AWS/minio-client.service";
 import { TimeoutRepeatTask } from "@app/common/safe-cron/timeout-repeated-task.decorator";
-import stream from 'stream';
+import * as stream from 'stream';
 import { EventEmitter } from 'eventemitter3';
-import { CosignSignatureService } from "@app/common/AWS/cosign-signature.service";
+import { FileProcessingService } from "@app/common/AWS/file-processing.service";
+import { HttpService } from "@nestjs/axios";
+import * as crypto from 'crypto';
 
 
 @Injectable()
@@ -22,8 +24,10 @@ export class FileUploadService {
   constructor(
     private readonly configService: ConfigService,
     private readonly minioClient: MinioClientService,
-    private readonly cosignSignatureService: CosignSignatureService,
+    private readonly fileProcessingService: FileProcessingService,
     @InjectRepository(FileUploadEntity) private readonly uploadRepo: Repository<FileUploadEntity>,
+    @InjectRepository(ReleaseArtifactEntity) private readonly artifactRepo: Repository<ReleaseArtifactEntity>,
+    private readonly httpService: HttpService,
   ) { }
 
 
@@ -111,7 +115,7 @@ export class FileUploadService {
     this.emitter.on("fileDeleted", callback);
   }
 
-  private createObjectKey(dto: CreateFileUploadUrlDto) {
+  createObjectKey(dto: CreateFileUploadUrlDto) {
     if (dto.objectKey) {
       const suffix = dto.objectKey.endsWith('/') ? '' : '/';
       return `${FileUploadService.OBJECT_PREFIX}${dto.userId}/${dto.objectKey}${suffix}${dto.fileName}`;
@@ -203,10 +207,18 @@ export class FileUploadService {
       return 0;
     }
 
-    if (file.status === FileUPloadStatusEnum.UPLOADED && this.configService.get('COSIGN_DO_SIGN_FILES') === 'true') {
-      this.signFile(file.objectKey).catch(err => {
-        this.logger.error(`Error signing file: ${file.objectKey}, error: ${err}`);
-      });
+    // Process file for SHA256 and/or Cosign signature when uploaded
+    // SHA256 is calculated by default for all uploaded files unless already present
+    if (file.status === FileUPloadStatusEnum.UPLOADED) {
+      const existingFile = await this.getFileByObjectKey(file.objectKey);
+      const needsSha256 = !existingFile.sha256;
+      const needsCosign = this.configService.get('COSIGN_DO_SIGN_FILES') === 'true';
+
+      if (needsSha256 || needsCosign) {
+        this.processAndSaveFile(file.objectKey, needsSha256, needsCosign).catch(err => {
+          this.logger.error(`Error processing file: ${file.objectKey}, error: ${err}`);
+        });
+      }
     }
 
     const res = await this.uploadRepo.update({ objectKey: file.objectKey }, file);
@@ -223,26 +235,184 @@ export class FileUploadService {
     return res.affected
   }
 
-  private async signFile(objectKey: string): Promise<void> {
-    this.logger.log(`Signing file with objectKey: ${objectKey}`);
-    const file = await this.getFileByObjectKey(objectKey);
-    if (!file) {
-      this.logger.warn(`File not found: ${objectKey}`);
-      return;
-    }
-    this.logger.debug(`File found: ${file.objectKey}, id: ${file.id}`);
+  /**
+   * Efficiently process file for SHA256 and/or Cosign signature using a single stream
+   * @param objectKey - The object key
+   * @param calculateSha256 - Whether to calculate SHA256
+   * @param calculateCosign - Whether to calculate Cosign signature
+   */
+  private async processAndSaveFile(
+    objectKey: string,
+    calculateSha256: boolean,
+    calculateCosign: boolean
+  ): Promise<void> {
+    this.logger.log(`Processing file: ${objectKey}, SHA256: ${calculateSha256}, Cosign: ${calculateCosign}`);
+    
     try {
-      const fileStream = await this.getFileStream(file.id);
-      const signature = await this.cosignSignatureService.signFile(fileStream)
-      this.logger.log(`File signed: ${file.objectKey}, signature: ${signature.toString()}`);
-      await this.uploadRepo.update({ id: file.id }, { signature: signature.toString() });
-      this.logger.debug(`File signature saved to DB: ${file.objectKey}`);
+      const file = await this.getFileByObjectKey(objectKey);
+      if (!file) {
+        this.logger.warn(`File not found: ${objectKey}`);
+        return;
+      }
+
+      // Get file stream from MinIO
+      const fileStream = await this.minioClient.getObject(this.bucketName, objectKey);
+
+      // Process file efficiently (stream is split internally if both operations are needed)
+      // SHA256 is calculated by default unless explicitly set to false
+      const result = await this.fileProcessingService.processFile(fileStream, {
+        calculateSha256,
+        calculateCosign,
+      });
+
+      // Update database with results
+      const updateData: Partial<FileUploadEntity> = {};
+      
+      if (result.sha256) {
+        updateData.sha256 = result.sha256;
+        this.logger.log(`SHA256 calculated for ${objectKey}: ${result.sha256}`);
+      }
+      
+      if (result.cosignSignature) {
+        updateData.signature = result.cosignSignature.toString();
+        this.logger.log(`File signed: ${objectKey}, signature: ${result.cosignSignature.toString()}`);
+      }
+
+      // Set progress to 100 since file was successfully uploaded and processed
+      updateData.progress = 100;
+
+      await this.uploadRepo.update({ id: file.id }, updateData);
+      this.logger.debug(`File processing results saved to DB: ${objectKey}`);
+      
+      // Emit fileCreated event to refresh release state after file processing
+      if (result.sha256) {
+        const updatedFile = await this.getFileByObjectKey(objectKey);
+        this.emitter.emit("fileCreated", updatedFile);
+        this.logger.debug(`Emitted fileCreated event for sha256 sync: ${objectKey}`);
+      }
     } catch (error) {
-      this.logger.error(`Error signing file: ${file.objectKey}, error: ${error}`);
+      this.logger.error(`Error processing file: ${objectKey}, error: ${error}`);
+      throw error;
     }
   }
 
+  /**
+   * Calculate SHA256 hash from a file in the bucket
+   * @param bucketName - The bucket name
+   * @param objectKey - The object key
+   * @returns The SHA256 hash as a hex string
+   */
+  async calculateSha256FromBucket(bucketName: string, objectKey: string): Promise<string> {
+    this.logger.log(`Calculating SHA256 for ${bucketName}/${objectKey}`);
+    const fileStream = await this.minioClient.getObject(bucketName, objectKey);
+    // Explicitly calculate only SHA256 (default behavior, but being explicit for clarity)
+    const result = await this.fileProcessingService.processFile(fileStream, {
+      calculateCosign: false,
+    });
+    return result.sha256!;
+  }
 
+  /**
+   * Upload a file from a URL to MinIO bucket
+   * Downloads file from URL, calculates SHA256 checksum, and uploads to MinIO
+   * @param fileUpload - The FileUploadEntity to update
+   * @param downloadUrl - The URL to download the file from
+   * @param expectedSha256 - Optional expected SHA256 checksum for validation
+   * @throws BadRequestException if download fails, upload fails, or checksum mismatch
+   */
+  async uploadFileFromUrl(
+    fileUpload: FileUploadEntity,
+    downloadUrl: string,
+    expectedSha256?: string
+  ): Promise<void> {
+    this.logger.log(`Uploading file ${fileUpload.fileName} from URL: ${downloadUrl}`);
+
+    try {
+      // Update status to UPLOADING with 0% progress
+      fileUpload.status = FileUPloadStatusEnum.UPLOADING;
+      fileUpload.progress = 0;
+      await this.uploadRepo.save(fileUpload);
+
+      // Download file from URL
+      this.logger.log(`Downloading file from URL: ${downloadUrl}`);
+      const response = await this.httpService.axiosRef.get(downloadUrl, {
+        responseType: 'stream',
+        timeout: 300000, // 5 minutes timeout
+      });
+
+      const totalSize = parseInt(response.headers['content-length'] || '0', 10);
+      let downloadedSize = 0;
+
+      // Create a pass-through stream to calculate checksum while uploading
+      const passThroughStream = new stream.PassThrough();
+      const hash = crypto.createHash('sha256');
+
+      passThroughStream.on('data', async (chunk) => {
+        hash.update(chunk);
+        downloadedSize += chunk.length;
+        
+        // Update progress every 5% or for small files, every chunk
+        if (totalSize > 0) {
+          const progress = Math.floor((downloadedSize / totalSize) * 100);
+          if (progress % 5 === 0 || totalSize < 1024 * 1024) { // Update every 5% or if file < 1MB
+            fileUpload.progress = progress;
+            await this.uploadRepo.save(fileUpload);
+          }
+        }
+      });
+
+      // Pipe the response to the pass-through stream
+      response.data.pipe(passThroughStream);
+
+      // Upload to MinIO
+      await this.minioClient['client'].putObject(
+        fileUpload.bucketName,
+        fileUpload.objectKey,
+        passThroughStream
+      );
+
+      this.logger.log(`Uploaded file ${fileUpload.fileName} to bucket`);
+
+      // Calculate final checksum
+      const calculatedChecksum = hash.digest('hex');
+      
+      // Validate checksum if provided
+      if (expectedSha256 && calculatedChecksum !== expectedSha256) {
+        this.logger.warn(`Checksum mismatch for file ${fileUpload.fileName}. Expected: ${expectedSha256}, Got: ${calculatedChecksum}`);
+        
+        // Delete the uploaded file and mark as failed
+        await this.minioClient.deleteObjects(fileUpload.bucketName, fileUpload.objectKey);
+        fileUpload.status = FileUPloadStatusEnum.ERROR;
+        fileUpload.error = 'Checksum mismatch';
+        await this.uploadRepo.save(fileUpload);
+        
+        throw new BadRequestException(`Checksum mismatch for file ${fileUpload.fileName}`);
+      }
+
+      // Get file stats
+      const stats = await this.minioClient.getObjectStat(fileUpload.bucketName, fileUpload.objectKey);
+
+      // Update file upload entity to UPLOADED
+      fileUpload.status = FileUPloadStatusEnum.UPLOADED;
+      fileUpload.size = stats?.size || totalSize;
+      fileUpload.uploadAt = new Date();
+      fileUpload.sha256 = calculatedChecksum;
+      fileUpload.progress = 100;
+      await this.uploadRepo.save(fileUpload);
+
+      this.logger.log(`Successfully uploaded file from URL: ${fileUpload.fileName}`);
+
+    } catch (error) {
+      this.logger.error(`Failed to upload file ${fileUpload.fileName} from URL: ${error.message}`);
+      
+      // Mark upload as failed by setting status to ERROR
+      fileUpload.status = FileUPloadStatusEnum.ERROR;
+      fileUpload.error = error.message;
+      await this.uploadRepo.save(fileUpload);
+      
+      throw new BadRequestException(`Failed to download or upload file ${fileUpload.fileName}: ${error.message}`);
+    }
+  }
 
   // TODO sync deleted files
   private async syncDB() {
