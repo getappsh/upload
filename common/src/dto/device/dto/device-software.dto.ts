@@ -33,6 +33,10 @@ export class SoftwareStateDto {
   @ApiProperty({ required: false})
   error?: string;
 
+  @ApiProperty({ required: false, description: 'Indicates if this version is unknown (not registered in getapp)' })
+  @IsOptional()
+  isUnknown?: boolean;
+
   static fromDeviceComponentEntity(componentState: DeviceComponentEntity) {
 
     let softwareState = new SoftwareStateDto();
