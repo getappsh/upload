@@ -5,6 +5,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { HttpModule } from '@nestjs/axios';
 import { DockerDownloadService } from './docker-download.service';
 import { UploadController } from './upload.controller';
 import { UploadService } from './upload.service';
@@ -20,6 +21,7 @@ import { RegulationEnforcementService } from './regulation-enforcement.service';
 import { JUnitParserService } from './utils/junit-parser.service';
 import { PROJECT_ACCESS_SERVICE } from '@app/common/utils/project-access';
 import { CosignSignatureService } from '@app/common/AWS/cosign-signature.service';
+import { FileProcessingService } from '@app/common/AWS/file-processing.service';
 
 @Module({
   imports: [
@@ -32,6 +34,7 @@ import { CosignSignatureService } from '@app/common/AWS/cosign-signature.service
     }),
     ApmModule,
     DatabaseModule,
+    HttpModule,
     JwtModule.registerAsync({
       useClass: UploadJwtConfigService
     }),
@@ -63,6 +66,7 @@ import { CosignSignatureService } from '@app/common/AWS/cosign-signature.service
     RegulationEnforcementService,
     JUnitParserService,
     CosignSignatureService,
+    FileProcessingService,
     {
       provide: PROJECT_ACCESS_SERVICE,
       useExisting: UploadService
