@@ -638,7 +638,7 @@ export class ReleaseService {
     const releaseEntity = this.releaseRepo.create();
     releaseEntity.project = { id: projectId } as unknown as ProjectEntity;
     releaseEntity.version = dto.version;
-    releaseEntity.name = dto.name;
+    releaseEntity.name = dto.name || dto.version; // Use version as name if name is not provided
     releaseEntity.releaseNotes = dto.releaseNotes || '';
     releaseEntity.metadata = dto.metadata || {};
     releaseEntity.status = ReleaseStatusEnum.DRAFT; // Always create as draft
