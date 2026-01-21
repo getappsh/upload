@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, Inject } from '@nestjs/common';
+import { Injectable, UnauthorizedException, Inject, Logger } from '@nestjs/common';
 import { RuleService } from '@app/common/rules/services';
 import { CreatePolicyDto, UpdateRuleDto, RuleQueryDto, CreateRuleFieldDto } from '@app/common/rules/dto';
 import { RuleType } from '@app/common/rules/enums/rule.enums';
@@ -6,11 +6,15 @@ import { PROJECT_ACCESS_SERVICE, ProjectAccessService } from '@app/common/utils/
 import { MicroserviceClient, MicroserviceName } from '@app/common/microservice-client';
 import { DeviceTopics } from '@app/common/microservice-client/topics';
 import { firstValueFrom } from 'rxjs';
+import { RuleValidationService } from '@app/common/rules/services/rule-validation.service';
 
 @Injectable()
 export class PolicyService {
+  private readonly logger = new Logger(PolicyService.name);
+
   constructor(
     private readonly ruleService: RuleService,
+    private readonly ruleValidationService: RuleValidationService,
     @Inject(PROJECT_ACCESS_SERVICE) private readonly uploadService: ProjectAccessService & { getUserProjectIds: (email: string) => Promise<number[]>; getProjectIdsByNames: (names: string[]) => Promise<number[]> },
     @Inject(MicroserviceName.DEVICE_SERVICE) private readonly deviceClient: MicroserviceClient,
   ) {}
@@ -156,6 +160,52 @@ export class PolicyService {
     
     if (!hasAccess) {
       throw new UnauthorizedException('You do not have access to this policy');
+    }
+  }
+
+  /**
+   * Syncs device fields to the rule_fields table
+   * Compares incoming fields from device with existing fields in database
+   * and adds new fields that don't exist yet
+   */
+  async syncDeviceFields(data: { deviceId: string; fields: Array<{ name: string; type: string; label?: string; description?: string }> }): Promise<void> {
+    this.logger.log(`Syncing ${data.fields.length} field(s) from device ${data.deviceId}`);
+
+    try {
+      // Get all existing fields from database
+      const existingFields = await this.ruleValidationService.getAvailableFields();
+      const existingFieldNames = new Set(existingFields.map(f => f.name));
+
+      // Filter out fields that already exist
+      const newFields = data.fields.filter(field => !existingFieldNames.has(field.name));
+
+      if (newFields.length === 0) {
+        this.logger.debug(`No new fields to add from device ${data.deviceId}`);
+        return;
+      }
+
+      this.logger.log(`Found ${newFields.length} new field(s) to add from device ${data.deviceId}`);
+
+      // Add each new field to the database
+      for (const field of newFields) {
+        try {
+          await this.ruleValidationService.addRuleField({
+            name: field.name,
+            type: field.type,
+            label: field.label || field.name,
+            description: field.description || `Field reported by device ${data.deviceId}`,
+          });
+          this.logger.debug(`Successfully added new field: ${field.name} (type: ${field.type})`);
+        } catch (err) {
+          // Log error but continue with other fields
+          this.logger.error(`Failed to add field ${field.name} from device ${data.deviceId}: ${err.message}`);
+        }
+      }
+
+      this.logger.log(`Successfully synced ${newFields.length} new field(s) from device ${data.deviceId}`);
+    } catch (err) {
+      this.logger.error(`Error syncing device fields from device ${data.deviceId}: ${err.message}`);
+      throw err;
     }
   }
 }
