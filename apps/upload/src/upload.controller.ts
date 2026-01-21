@@ -185,9 +185,9 @@ export class UploadController {
     await this.releasesService.onProjectRegulationChanged(event);
   }
 
-  @EventPattern(UploadTopicsEmit.SYNC_DEVICE_FIELDS)
-  async syncDeviceFields(@RpcPayload() data: { deviceId: string; fields: Array<{ name: string; type: string; label?: string; description?: string }> }) {
-    this.logger.log(`Received device fields sync request from device ${data.deviceId}`);
+  @EventPattern(UploadTopicsEmit.SYNC_DEVICE_RULE_FIELDS)
+  async syncDeviceRuleFields(@RpcPayload() data: { deviceId: string; fields: Array<{ name: string; type: string; label?: string; description?: string }> }) {
+    this.logger.log(`Received device rule fields sync request from device ${data.deviceId}`);
     await this.policyService.syncDeviceFields(data);
   }
 
