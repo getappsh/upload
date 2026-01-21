@@ -116,16 +116,6 @@ export class DiscoveryMessageV2Dto {
 
   @ApiProperty({ 
     required: false, 
-    type: [RestrictionDto],
-    description: 'Restrictions applicable to this device based on device type, device ID, and OS'
-  })
-  @IsOptional()
-  @ValidateNested({ each: true })
-  @Type(() => RestrictionDto)
-  restrictions?: RestrictionDto[];
-
-  @ApiProperty({ 
-    required: false, 
     type: [DeviceFieldDto],
     description: 'List of fields that the device supports for evaluation, including their types (e.g., number, string, boolean)'
   })
