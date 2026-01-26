@@ -38,7 +38,6 @@ export class ExportDockerImageDto {
   imageUrl: string;
 
 
-
   @ApiProperty({ description: 'Additional metadata', required: false })
   @IsOptional()
   metadata?: Record<string, any>;

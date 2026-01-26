@@ -71,8 +71,8 @@ export class ImportDependencyDto {
 
 export class ImportReleaseDto {
   @ApiProperty({ description: 'Release name' })
-  @IsOptional()
   @IsString()
+  @IsNotEmpty()
   name: string;
 
   @ApiProperty({ description: 'Release version' })
@@ -93,6 +93,10 @@ export class ImportReleaseDto {
   @IsString()
   @IsNotEmpty()
   project: string;
+
+  @ApiProperty({ description: 'Project ID (set by API layer)', required: false })
+  @IsOptional()
+  projectIdentifier?: number | string;
 
   @ApiProperty({ description: 'Release status', required: false })
   @IsString()

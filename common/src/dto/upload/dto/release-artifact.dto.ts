@@ -48,6 +48,8 @@ export class SetReleaseArtifactDto {
   @ApiProperty({ required: false})
   arguments: string
 
+  
+
 }
 
 
@@ -122,9 +124,9 @@ export class ReleaseArtifactDto {
   @ApiProperty({ 
     required: false, 
     type: 'number', 
-    minimum: -1, 
+    minimum: 0, 
     maximum: 100, 
-    description: 'Upload/download progress percentage (-1-100) where -1 indicates an error' 
+    description: 'Upload/download progress percentage (0-100). Check status field for errors.' 
   })
   @IsOptional()
   @IsNumber()
@@ -133,11 +135,16 @@ export class ReleaseArtifactDto {
   @ApiProperty({ 
     required: false, 
     type: 'string',
-    description: 'Error message when progress is -1' 
+    description: 'Error message when status indicates an error' 
   })
   @IsOptional()
   @IsString()
   error?: string
+
+  @ApiProperty({ required: false, type: 'string', description: 'SHA256 hash of the file' })
+  @IsOptional()
+  @IsString()
+  sha256?: string
 
 
   static fromEntity(artifact: ReleaseArtifactEntity): ReleaseArtifactDto {
@@ -151,8 +158,9 @@ export class ReleaseArtifactDto {
     dto.uploadId = artifact.fileUpload ? artifact.fileUpload.id : undefined;
     dto.status = artifact?.fileUpload?.status
     dto.size = artifact?.fileUpload?.size
-    dto.progress = artifact?.fileUpload?.progress
+    dto.progress = artifact?.fileUpload?.progress ?? 0
     dto.error = artifact?.fileUpload?.error
+    dto.sha256 = artifact?.fileUpload?.sha256
     dto.arguments = artifact?.arguments;
     dto.isExecutable = artifact?.isExecutable;
 
