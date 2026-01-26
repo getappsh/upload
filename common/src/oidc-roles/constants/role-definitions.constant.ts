@@ -55,6 +55,18 @@ export const ROLE_DESCRIPTIONS: Record<string, string> = {
   // Configuration
   'manage-config': 'Permission to manage system configuration',
   'view-config': 'Permission to view system configuration',
+
+  // Policies & Rules Management
+  'create-policy': 'Permission to create policies (release-associated rules)',
+  'view-policy': 'Permission to view policy details',
+  'update-policy': 'Permission to update existing policies',
+  'delete-policy': 'Permission to delete policies',
+  'list-policies': 'Permission to list/browse all policies',
+  'create-restriction': 'Permission to create restrictions (device-associated rules)',
+  'view-restriction': 'Permission to view restriction details',
+  'update-restriction': 'Permission to update existing restrictions',
+  'delete-restriction': 'Permission to delete restrictions',
+  'list-restrictions': 'Permission to list/browse all restrictions',
 };
 
 /**
@@ -114,6 +126,12 @@ export const COMPOSITE_ROLES: RoleDefinition[] = [
       ApiRole.VIEW_LOGS,
       ApiRole.VIEW_METRICS,
       ApiRole.VIEW_CONFIG,
+      // Policies & Rules
+      ApiRole.CREATE_POLICY,
+      ApiRole.VIEW_POLICY,
+      ApiRole.UPDATE_POLICY,
+      ApiRole.DELETE_POLICY,
+      ApiRole.LIST_POLICIES,
       // Enable permissions
       ApiRole.PERMISSIONS_ENABLED,
     ],
@@ -150,6 +168,17 @@ export const COMPOSITE_ROLES: RoleDefinition[] = [
       // Configuration
       ApiRole.MANAGE_CONFIG,
       ApiRole.VIEW_CONFIG,
+      // Policies & Rules Management
+      ApiRole.CREATE_POLICY,
+      ApiRole.VIEW_POLICY,
+      ApiRole.UPDATE_POLICY,
+      ApiRole.DELETE_POLICY,
+      ApiRole.LIST_POLICIES,
+      ApiRole.CREATE_RESTRICTION,
+      ApiRole.VIEW_RESTRICTION,
+      ApiRole.UPDATE_RESTRICTION,
+      ApiRole.DELETE_RESTRICTION,
+      ApiRole.LIST_RESTRICTIONS,
       // View permissions (Projects, Releases, Artifacts)
       ApiRole.VIEW_PROJECT,
       ApiRole.LIST_PROJECTS,

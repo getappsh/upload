@@ -181,6 +181,57 @@ export enum ApiRole {
    */
   VIEW_CONFIG = 'view-config',
 
+  // ========== POLICIES & RULES MANAGEMENT ==========
+  /**
+   * Permission to create policies (release-associated rules)
+   */
+  CREATE_POLICY = 'create-policy',
+
+  /**
+   * Permission to view policy details
+   */
+  VIEW_POLICY = 'view-policy',
+
+  /**
+   * Permission to update existing policies
+   */
+  UPDATE_POLICY = 'update-policy',
+
+  /**
+   * Permission to delete policies
+   */
+  DELETE_POLICY = 'delete-policy',
+
+  /**
+   * Permission to list/browse all policies
+   */
+  LIST_POLICIES = 'list-policies',
+
+  /**
+   * Permission to create restrictions (device-associated rules)
+   */
+  CREATE_RESTRICTION = 'create-restriction',
+
+  /**
+   * Permission to view restriction details
+   */
+  VIEW_RESTRICTION = 'view-restriction',
+
+  /**
+   * Permission to update existing restrictions
+   */
+  UPDATE_RESTRICTION = 'update-restriction',
+
+  /**
+   * Permission to delete restrictions
+   */
+  DELETE_RESTRICTION = 'delete-restriction',
+
+  /**
+   * Permission to list/browse all restrictions
+   */
+  LIST_RESTRICTIONS = 'list-restrictions',
+
   // ========== SPECIAL STAMP ==========
   /**
    * Special stamp role that enables permission validation when present
