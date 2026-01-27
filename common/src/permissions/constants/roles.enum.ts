@@ -131,11 +131,6 @@ export enum ApiRole {
   LINK_PROJECT_DEVICE_TYPE = 'link-project-device-type',
 
   /**
-   * Permission to view offerings
-   */
-  VIEW_OFFERING = 'view-offering',
-
-  /**
    * Permission to create offerings
    */
   CREATE_OFFERING = 'create-offering',

@@ -38,7 +38,6 @@ export const ROLE_DESCRIPTIONS: Record<string, string> = {
   'view-discovery': 'Permission to view discovery services and devices',
   'manage-discovery': 'Permission to manage discovery services (edit, delete devices)',
   'link-project-device-type': 'Permission to link projects to device types',
-  'view-offering': 'Permission to view offerings',
   'create-offering': 'Permission to create offerings',
   'update-offering': 'Permission to update offerings',
   'delete-offering': 'Permission to delete offerings',
@@ -108,7 +107,6 @@ export const COMPOSITE_ROLES: RoleDefinition[] = [
       ApiRole.LIST_ARTIFACTS,
       // View permissions
       ApiRole.VIEW_DISCOVERY,
-      ApiRole.VIEW_OFFERING,
       ApiRole.VIEW_USER,
       ApiRole.VIEW_ANALYTICS,
       ApiRole.VIEW_LOGS,
@@ -132,7 +130,6 @@ export const COMPOSITE_ROLES: RoleDefinition[] = [
       ApiRole.MANAGE_DISCOVERY,
       ApiRole.LINK_PROJECT_DEVICE_TYPE,
       // Offerings
-      ApiRole.VIEW_OFFERING,
       ApiRole.CREATE_OFFERING,
       ApiRole.UPDATE_OFFERING,
       ApiRole.DELETE_OFFERING,
