@@ -2,8 +2,10 @@ import { ApiRole } from '../../permissions/constants/roles.enum';
 
 /**
  * Role descriptions for better documentation in OIDC provider
+ * Note: Descriptions are optional. If a role is added to ApiRole enum without a description,
+ * it will still be created in OIDC with a default description based on the role name.
  */
-export const ROLE_DESCRIPTIONS: Record<ApiRole, string> = {
+export const ROLE_DESCRIPTIONS: Partial<Record<ApiRole, string>> = {
   [ApiRole.PERMISSIONS_ENABLED]: 'Special stamp role that enables permission validation when present',
 
   // Project Management
