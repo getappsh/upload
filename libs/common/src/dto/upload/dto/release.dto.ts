@@ -97,6 +97,12 @@ export class ReleaseDto {
   @ApiProperty({ required: false })
   updatedBy?: string
 
+  @ApiProperty({ description: 'Indicates if this release was imported from another system' })
+  isImported: boolean
+
+  @ApiProperty({ description: 'Indicates if this release is read-only (imported releases that are released)' })
+  readonly: boolean
+
   static fromEntity(release: ReleaseEntity): ReleaseDto {
     const dto = new ReleaseDto();
     dto.version = release.version;
@@ -115,6 +121,9 @@ export class ReleaseDto {
     dto.releasedAt = release.releasedAt ?? undefined;
     dto.createdBy = release.createdBy ?? undefined;
     dto.updatedBy = release.updatedBy ?? undefined;
+    dto.isImported = release.isImported ?? false;
+    // Readonly if it's imported AND released (not draft or in_review)
+    dto.readonly = dto.isImported && release.status === ReleaseStatusEnum.RELEASED;
 
     return dto;
   }
