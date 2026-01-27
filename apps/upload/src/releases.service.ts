@@ -15,6 +15,7 @@ import { ExportReleaseDto, ExportArtifactDto, ExportDockerImageDto, ExportDepend
 import { MinioClientService } from "@app/common/AWS/minio-client.service";
 import { ConfigService } from "@nestjs/config";
 import { ClsService } from 'nestjs-cls';
+import { ApiRole, PermissionsService } from "@app/common";
 
 
 @Injectable()
@@ -32,6 +33,7 @@ export class ReleaseService {
     private readonly minioClient: MinioClientService,
     private readonly configService: ConfigService,
     private readonly cls: ClsService,
+    private readonly permissionsService: PermissionsService,
   ) {
 
     this.fileUploadService.onFileCreate(file => this.onFileCreate(file));
@@ -46,9 +48,8 @@ export class ReleaseService {
     if (release.isImported && release.status === ReleaseStatusEnum.RELEASED) {
       const user = this.cls.get('user');
       
-      // Check if user has the special edit-imported-release role
-      const userRoles = user?.resource_access?.api?.roles || [];
-      const hasPermission = userRoles.includes('edit-imported-release');
+      // Use PermissionsService to check for the special edit-imported-release role
+      const hasPermission = this.permissionsService.hasRole(user, ApiRole.EDIT_IMPORTED_RELEASE);
       
       if (!hasPermission) {
         const username = user?.preferred_username || user?.email || 'unknown';
