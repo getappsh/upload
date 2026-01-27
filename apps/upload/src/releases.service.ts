@@ -143,7 +143,9 @@ export class ReleaseService {
       if (!release) {
         throw new NotFoundException(`Release not found for project: ${params.projectId}, version: ${params.version}`);
       }
-      return DetailedReleaseDto.fromEntity(release);
+      const user = this.cls.get('user');
+      const userCanEditImported = user ? this.permissionsService.hasRole(user, ApiRole.EDIT_IMPORTED_RELEASE) : false;
+      return DetailedReleaseDto.fromEntity(release, userCanEditImported);
     })
   }
 
@@ -178,7 +180,9 @@ export class ReleaseService {
       relations: ['project'],
       select: { project: { id: true, name: true } }
     })
-    return releases.map((release) => ReleaseDto.fromEntity(release));
+    const user = this.cls.get('user');
+    const userCanEditImported = user ? this.permissionsService.hasRole(user, ApiRole.EDIT_IMPORTED_RELEASE) : false;
+    return releases.map((release) => ReleaseDto.fromEntity(release, userCanEditImported));
   }
 
 
