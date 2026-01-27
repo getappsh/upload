@@ -51,6 +51,13 @@ export enum ApiRole {
   DELETE_RELEASE = 'delete-release',
 
   /**
+   * Permission to edit imported releases that are in released status
+   * This is a special permission for users who can modify imported releases
+   */
+  EDIT_IMPORTED_RELEASE = 'edit-imported-release',
+
+
+  /**
    * Permission to push/deploy releases
    */
   PUSH_RELEASE = 'push-release',
