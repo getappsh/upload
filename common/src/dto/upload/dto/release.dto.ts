@@ -5,6 +5,42 @@ import { ReleaseArtifactDto } from "./release-artifact.dto";
 import { Type } from "class-transformer";
 import { ProjectIdentifierParams } from "@app/common/dto/project-management";
 
+/**
+ * Post-install action types
+ */
+export enum PostInstallActionType {
+  NONE = 'NONE',
+  WEB = 'WEB',
+  EXE = 'EXE'
+}
+
+/**
+ * Post-install action configuration
+ */
+export interface PostInstallAction {
+  /** Action type: NONE (no action), WEB (open URL), or EXE (run executable) */
+  type: PostInstallActionType;
+  /** URL to open (required when type is WEB) */
+  url?: string;
+  /** Executable path to run (required when type is EXE) */
+  exePath?: string;
+}
+
+/**
+ * Release metadata configuration
+ * 
+ * This interface documents common metadata properties, but metadata can contain
+ * any additional user-defined keys. The structure is flexible and extensible.
+ */
+export interface ReleaseMetadata {
+  /** Enable automatic deployment of this release */
+  autoDeploy?: boolean;
+  /** Post-installation action configuration */
+  postInstallAction?: PostInstallAction;
+  /** Additional user-defined metadata properties (flexible structure) */
+  [key: string]: any;
+}
+
 export class SetReleaseDto {
 
   projectIdentifier: string | number
@@ -27,9 +63,9 @@ export class SetReleaseDto {
   @IsOptional()
   releaseNotes?: string;
 
-  @ApiProperty({ required: false, type: 'object' })
+  @ApiProperty({ required: false, type: 'object', description: 'Release metadata including autoDeploy and postInstallAction configuration. Additional user-defined properties are supported.' })
   @IsOptional()
-  metadata?: Record<string, any>;
+  metadata?: ReleaseMetadata;
 
   @ApiProperty({ required: false, default: true })
   @IsBoolean()
@@ -67,8 +103,8 @@ export class ReleaseDto {
   @ApiProperty()
   releaseNotes: string;
 
-  @ApiProperty()
-  metadata: Record<string, any>;
+  @ApiProperty({ description: 'Release metadata including autoDeploy and postInstallAction configuration. Additional user-defined properties are supported.' })
+  metadata: ReleaseMetadata;
 
   @ApiProperty({ type: 'enum', enum: ReleaseStatusEnum })
   status: ReleaseStatusEnum;
@@ -160,8 +196,8 @@ export class ComponentV2Dto {
   @ApiProperty({ required: false })
   releaseNotes?: string;
 
-  @ApiProperty({ required: false })
-  metadata?: Record<string, any>;
+  @ApiProperty({ required: false, description: 'Component metadata including autoDeploy and postInstallAction configuration. Additional user-defined properties are supported.' })
+  metadata?: ReleaseMetadata;
 
   @ApiProperty({ type: 'enum', enum: ReleaseStatusEnum })
   status: ReleaseStatusEnum;
