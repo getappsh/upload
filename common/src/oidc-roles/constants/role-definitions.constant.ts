@@ -2,8 +2,10 @@ import { ApiRole } from '../../permissions/constants/roles.enum';
 
 /**
  * Role descriptions for better documentation in OIDC provider
+ * Note: Descriptions are optional. If a role is added to ApiRole enum without a description,
+ * it will still be created in OIDC with a default description based on the role name.
  */
-export const ROLE_DESCRIPTIONS: Record<string, string> = {
+export const ROLE_DESCRIPTIONS: Partial<Record<ApiRole, string>> = {
   [ApiRole.PERMISSIONS_ENABLED]: 'Special stamp role that enables permission validation when present',
 
   // Project Management
@@ -12,12 +14,12 @@ export const ROLE_DESCRIPTIONS: Record<string, string> = {
   [ApiRole.UPDATE_PROJECT]: 'Permission to update existing projects',
   [ApiRole.DELETE_PROJECT]: 'Permission to delete projects',
   [ApiRole.LIST_PROJECTS]: 'Permission to list/browse all projects',
-  [ApiRole.VIEW_OFFERING]: 'Permission to view offerings',
 
   // Release Management
   [ApiRole.CREATE_RELEASE]: 'Permission to create new releases',
   [ApiRole.VIEW_RELEASE]: 'Permission to view release details',
   [ApiRole.UPDATE_RELEASE]: 'Permission to update existing releases',
+  [ApiRole.EDIT_IMPORTED_RELEASE]: 'Permission to edit imported releases that are in released status',
   [ApiRole.DELETE_RELEASE]: 'Permission to delete releases',
   [ApiRole.PUSH_RELEASE]: 'Permission to push/deploy releases',
   [ApiRole.PUBLISH_RELEASE]: 'Permission to publish releases',
@@ -39,6 +41,7 @@ export const ROLE_DESCRIPTIONS: Record<string, string> = {
   [ApiRole.VIEW_DISCOVERY]: 'Permission to view discovery services and devices',
   [ApiRole.MANAGE_DISCOVERY]: 'Permission to manage discovery services (edit, delete devices)',
   [ApiRole.LINK_PROJECT_DEVICE_TYPE]: 'Permission to link projects to device types',
+  [ApiRole.VIEW_OFFERING]: 'Permission to view offerings',
   [ApiRole.CREATE_OFFERING]: 'Permission to create offerings',
   [ApiRole.UPDATE_OFFERING]: 'Permission to update offerings',
   [ApiRole.DELETE_OFFERING]: 'Permission to delete offerings',
@@ -138,6 +141,9 @@ export const COMPOSITE_ROLES: RoleDefinition[] = [
       ApiRole.VIEW_OFFERING,
       // Pushing a release to devices
       ApiRole.PUSH_RELEASE,
+      
+      // Special release permissions
+      ApiRole.EDIT_IMPORTED_RELEASE,
 
       // User Management
       ApiRole.VIEW_USER,
