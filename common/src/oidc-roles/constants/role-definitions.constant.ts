@@ -12,6 +12,7 @@ export const ROLE_DESCRIPTIONS: Record<string, string> = {
   'update-project': 'Permission to update existing projects',
   'delete-project': 'Permission to delete projects',
   'list-projects': 'Permission to list/browse all projects',
+  'view-offering': 'Permission to view offerings',
 
   // Release Management
   'create-release': 'Permission to create new releases',
@@ -112,6 +113,7 @@ export const COMPOSITE_ROLES: RoleDefinition[] = [
       ApiRole.VIEW_LOGS,
       ApiRole.VIEW_METRICS,
       ApiRole.VIEW_CONFIG,
+      ApiRole.VIEW_OFFERING,
       // Enable permissions
       ApiRole.PERMISSIONS_ENABLED,
     ],
@@ -133,7 +135,7 @@ export const COMPOSITE_ROLES: RoleDefinition[] = [
       ApiRole.CREATE_OFFERING,
       ApiRole.UPDATE_OFFERING,
       ApiRole.DELETE_OFFERING,
-      
+      ApiRole.VIEW_OFFERING,
       // Pushing a release to devices
       ApiRole.PUSH_RELEASE,
 
