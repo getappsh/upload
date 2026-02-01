@@ -45,6 +45,7 @@ export class SoftwareStateDto {
     softwareState.error = componentState?.error;
     softwareState.downloadDate = componentState?.downloadedAt;
     softwareState.deployDate = componentState?.deployedAt;
+    softwareState.isUnknown = false; // Known versions from components
 
     return softwareState;
   }
@@ -54,6 +55,7 @@ export class SoftwareStateDto {
   }
   
 }
+
 export class DeviceSoftwareDto extends DeviceDto {
 
   @ApiProperty({ isArray: true, type: SoftwareStateDto })
