@@ -1,7 +1,7 @@
 import { DatabaseModule, UploadJwtConfigService } from '@app/common';
 import { RuleModule } from '@app/common/rules';
 import { S3Service } from '@app/common/AWS/s3.service';
-import { FileUploadEntity, MemberEntity, MemberProjectEntity, ProjectEntity, RegulationEntity, RegulationStatusEntity, ReleaseArtifactEntity, ReleaseEntity, UploadVersionEntity, RuleFieldEntity, RuleEntity, RuleReleaseEntity, RuleDeviceTypeEntity, RuleDeviceEntity, RuleOsEntity} from '@app/common/database/entities';
+import { FileUploadEntity, RegulationEntity, RegulationStatusEntity, ReleaseArtifactEntity, ReleaseEntity, UploadVersionEntity, RuleFieldEntity, RuleEntity, RuleReleaseEntity, RuleDeviceTypeEntity, RuleDeviceEntity, RuleOsEntity} from '@app/common/database/entities';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -49,11 +49,9 @@ import { FileProcessingService } from '@app/common/AWS/file-processing.service';
     }),
     TypeOrmModule.forFeature([
       UploadVersionEntity, 
-      ProjectEntity,
        FileUploadEntity, 
        ReleaseEntity, 
        ReleaseArtifactEntity, 
-       MemberProjectEntity,
        RegulationStatusEntity,
        RegulationEntity,
        RuleFieldEntity,

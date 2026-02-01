@@ -8,8 +8,9 @@ import { DockerDownloadService } from './docker-download.service';
 import { ComponentDto } from '@app/common/dto/discovery';
 import { UpdateFilePropertiesDto, UpdateUploadStatusDto, UploadEventDto, UploadEventEnum } from '@app/common/dto/upload';
 import { MicroserviceClient, MicroserviceName } from '@app/common/microservice-client';
-import { OfferingTopicsEmit } from '@app/common/microservice-client/topics';
+import { OfferingTopicsEmit, ProjectManagementTopics } from '@app/common/microservice-client/topics';
 import { ProjectAccessService } from '@app/common/utils/project-access';
+import { firstValueFrom } from 'rxjs';
 
 
 
@@ -23,9 +24,8 @@ export class UploadService implements ProjectAccessService {
     private readonly dockerDownloadService: DockerDownloadService,
     private readonly jwtService: JwtService,
     @InjectRepository(UploadVersionEntity) private readonly uploadVersionRepo: Repository<UploadVersionEntity>,
-    @InjectRepository(ProjectEntity) private readonly projectRepo: Repository<ProjectEntity>,
-    @InjectRepository(MemberProjectEntity) private readonly memberProjectRepo: Repository<MemberProjectEntity>,
     @Inject(MicroserviceName.OFFERING_SERVICE) private readonly offeringClient: MicroserviceClient,
+    @Inject(MicroserviceName.PROJECT_MANAGEMENT_SERVICE) private readonly projectManagementClient: MicroserviceClient,
     
   ) { }
 
@@ -229,56 +229,46 @@ export class UploadService implements ProjectAccessService {
 
   async getProjectFromToken(token: string): Promise<ProjectEntity> {
     const payload = this.jwtService.verify(token)
-    const project = await this.projectRepo.findOne({ where: { id: payload.data.projectId, tokens: { token: token, isActive: true } } })
-    if (!project) {
-      throw new ForbiddenException('Not Allowed in this project');
-    }
-    return project;
+    
+    return firstValueFrom(
+      this.projectManagementClient.send(
+        ProjectManagementTopics.GET_PROJECT_FROM_TOKEN,
+        token
+      )
+    );
   }
 
   getMemberInProject(projectIdentifier: number | string,  email: string): Promise<MemberProjectEntity> {
     this.logger.verbose(`Get member in project: ${projectIdentifier}, with email: ${email}`)
 
-    const projectCondition = typeof projectIdentifier === 'number'
-    ? { id: projectIdentifier }
-    : { name: projectIdentifier };
-
-    return this.memberProjectRepo.findOne({
-      relations: ['project', 'member'],
-      where: {
-        project: projectCondition,
-        member: { email: email }
-      }
-    });
+    return firstValueFrom(
+      this.projectManagementClient.send(
+        ProjectManagementTopics.GET_MEMBER_IN_PROJECT,
+        { projectIdentifier, email }
+      )
+    );
   }
 
   async getUserProjectIds(email: string): Promise<number[]> {
     this.logger.verbose(`Getting all project IDs for user: ${email}`);
     
-    const memberProjects = await this.memberProjectRepo.find({
-      select: { project: { id: true } },
-      relations: ['project'],
-      where: {
-        member: { email: email }
-      }
-    });
-
-    return memberProjects.map(mp => mp.project.id);
+    return firstValueFrom(
+      this.projectManagementClient.send(
+        ProjectManagementTopics.GET_USER_PROJECT_IDS,
+        email
+      )
+    );
   }
 
   async getProjectIdsByNames(projectNames: string[]): Promise<number[]> {
     this.logger.verbose(`Getting project IDs for names: ${projectNames.join(', ')}`);
     
-    if (projectNames.length === 0) {
-      return [];
-    }
-
-    const projects = await this.projectRepo.find({
-      select: { id: true },
-      where: projectNames.map(name => ({ name }))
-    });
-
-    return projects.map(p => p.id);
+    return firstValueFrom(
+      this.projectManagementClient.send(
+        ProjectManagementTopics.GET_PROJECT_IDS_BY_NAMES,
+        projectNames
+      )
+    );
   }
 
 
