@@ -58,16 +58,16 @@ export const ROLE_DESCRIPTIONS: Partial<Record<ApiRole, string>> = {
 
 
   // Policies & Rules Management
-  'create-policy': 'Permission to create policies (release-associated rules)',
-  'view-policy': 'Permission to view policy details',
-  'update-policy': 'Permission to update existing policies',
-  'delete-policy': 'Permission to delete policies',
-  'list-policies': 'Permission to list/browse all policies',
-  'create-restriction': 'Permission to create restrictions (device-associated rules)',
-  'view-restriction': 'Permission to view restriction details',
-  'update-restriction': 'Permission to update existing restrictions',
-  'delete-restriction': 'Permission to delete restrictions',
-  'list-restrictions': 'Permission to list/browse all restrictions',
+  [ApiRole.CREATE_POLICY]: 'Permission to create policies (release-associated rules)',
+  [ApiRole.VIEW_POLICY]: 'Permission to view policy details',
+  [ApiRole.UPDATE_POLICY]: 'Permission to update existing policies',
+  [ApiRole.DELETE_POLICY]: 'Permission to delete policies',
+  [ApiRole.LIST_POLICIES]: 'Permission to list/browse all policies',
+  [ApiRole.CREATE_RESTRICTION]: 'Permission to create restrictions (device-associated rules)',
+  [ApiRole.VIEW_RESTRICTION]: 'Permission to view restriction details',
+  [ApiRole.UPDATE_RESTRICTION]: 'Permission to update existing restrictions',
+  [ApiRole.DELETE_RESTRICTION]: 'Permission to delete restrictions',
+  [ApiRole.LIST_RESTRICTIONS]: 'Permission to list/browse all restrictions',
   [ApiRole.MANAGE_CONFIG]: 'Permission to manage system configuration',
   [ApiRole.VIEW_CONFIG]: 'Permission to view system configuration',
 };
