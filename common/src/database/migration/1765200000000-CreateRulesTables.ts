@@ -119,7 +119,8 @@ export class CreateRulesTables1765200000000 implements MigrationInterface {
             ('$.os.version', 'string', 'OS Version', 'Operating system version'),
             ('$.location.latitude', 'number', 'Latitude', 'Device location latitude'),
             ('$.location.longitude', 'number', 'Longitude', 'Device location longitude'),
-            ('$.device.type', 'string', 'Device Type', 'Type of device')
+            ('$.device.type', 'string', 'Device Type', 'Type of device'),
+            ('$.device.any', 'boolean', 'Any Device', 'When set to true, policy evaluation will pass regardless of other conditions. Use this to display components without special checks.')
         `);
     }
 
