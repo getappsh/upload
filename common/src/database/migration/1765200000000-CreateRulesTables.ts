@@ -136,7 +136,7 @@ export class CreateRulesTables1765200000000 implements MigrationInterface {
             VALUES (
                 '00000000-0000-0000-0000-000000000001',
                 'Allow All Devices',
-                'Default policy that allows all devices to access content. This rule is automatically applied to all releases unless manually removed.',
+                'Default policy that allows all devices to download a component. This rule is automatically applied to all existing and new releases unless manually removed.',
                 'policy',
                 1,
                 true,
@@ -145,7 +145,7 @@ export class CreateRulesTables1765200000000 implements MigrationInterface {
             ON CONFLICT ("id") DO NOTHING
         `);
 
-        // Link default rule to all existing releases (using ON CONFLICT DO NOTHING)
+        // Link default rule to all existing eleases (using ON CONFLICT DO NOTHING)
         await queryRunner.query(`
             INSERT INTO "rule_releases" ("rule_id", "release_catalog_id")
             SELECT '00000000-0000-0000-0000-000000000001', "catalog_id"
