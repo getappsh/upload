@@ -1,4 +1,4 @@
-import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum } from "@app/common/database/entities";
+import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum, RuleEntity, RuleReleaseEntity } from "@app/common/database/entities";
 import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto, ReleaseEventType, ReleaseEventEnum, ReleaseChangedEventDto, GetReleaseArtifactResDto, ReleaseArtifactNameParams, UpdateFilePropertiesDto } from "@app/common/dto/upload";
 import { Inject, Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -19,12 +19,15 @@ import { ClsService } from 'nestjs-cls';
 @Injectable()
 export class ReleaseService {
   private readonly logger = new Logger(ReleaseService.name);
+  private readonly DEFAULT_RULE_ID = '00000000-0000-0000-0000-000000000001';
 
   constructor(
     @Inject(MicroserviceName.PROJECT_MANAGEMENT_SERVICE) private readonly projectClient: MicroserviceClient,
     @InjectRepository(ReleaseEntity) private readonly releaseRepo: Repository<ReleaseEntity>,
     @InjectRepository(ReleaseArtifactEntity) private readonly artifactRepo: Repository<ReleaseArtifactEntity>,
     @InjectRepository(RegulationEntity) private readonly regulationRepo: Repository<RegulationEntity>,
+    @InjectRepository(RuleEntity) private readonly ruleRepo: Repository<RuleEntity>,
+    @InjectRepository(RuleReleaseEntity) private readonly ruleReleaseRepo: Repository<RuleReleaseEntity>,
     @Inject(MicroserviceName.OFFERING_SERVICE) private readonly offeringClient: MicroserviceClient,
     private readonly fileUploadService: FileUploadService,
     private readonly regulationService: RegulationStatusService,
@@ -71,9 +74,56 @@ export class ReleaseService {
     this.logger.debug(`Saving release: ${JSON.stringify(releaseEntity)}`);
     await this.releaseRepo.save(releaseEntity)
 
+    // Link default rule to new releases
+    if (isNewRelease) {
+      await this.linkDefaultRuleToRelease(releaseEntity.catalogId);
+    }
+
     await this.refreshReleaseState(dto);
 
     return this.getRelease(dto);
+  }
+
+  /**
+   * Links the default "Allow All Devices" rule to a release if it exists and isn't already linked
+   */
+  private async linkDefaultRuleToRelease(releaseCatalogId: string): Promise<void> {
+    try {
+      // Check if default rule exists and is active
+      const defaultRule = await this.ruleRepo.findOne({
+        where: { id: this.DEFAULT_RULE_ID, isActive: true }
+      });
+
+      if (!defaultRule) {
+        this.logger.warn(`Default rule ${this.DEFAULT_RULE_ID} not found or is inactive`);
+        return;
+      }
+
+      // Check if link already exists
+      const existingLink = await this.ruleReleaseRepo.findOne({
+        where: {
+          rule: { id: this.DEFAULT_RULE_ID },
+          release: { catalogId: releaseCatalogId }
+        }
+      });
+
+      if (existingLink) {
+        this.logger.debug(`Default rule already linked to release ${releaseCatalogId}`);
+        return;
+      }
+
+      // Create the link
+      const ruleRelease = this.ruleReleaseRepo.create({
+        rule: { id: this.DEFAULT_RULE_ID } as RuleEntity,
+        release: { catalogId: releaseCatalogId } as ReleaseEntity
+      });
+
+      await this.ruleReleaseRepo.save(ruleRelease);
+      this.logger.log(`Linked default rule to release ${releaseCatalogId}`);
+    } catch (error) {
+      this.logger.error(`Failed to link default rule to release ${releaseCatalogId}: ${error.message}`);
+      // Don't throw - this shouldn't block release creation
+    }
   }
 
   private async getAndValidateDependenciesForRelease(release: { projectId: number, version: string }, dependencies: string[]): Promise<ReleaseEntity[]> {
@@ -634,6 +684,9 @@ export class ReleaseService {
     // Save release
     const savedRelease = await this.releaseRepo.save(releaseEntity);
     this.logger.log(`Created release with catalogId: ${savedRelease.catalogId}`);
+
+    // Link default rule to imported release
+    await this.linkDefaultRuleToRelease(savedRelease.catalogId);
 
     const bucketName = this.configService.get('BUCKET_NAME');
 
