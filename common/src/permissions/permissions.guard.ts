@@ -12,6 +12,7 @@ import { PermissionsService } from './permissions.service';
 import { REQUIRED_ROLES_KEY } from './constants/metadata-keys';
 import { RequirePermissionsOptions } from './constants/permissions.decorator';
 import { JwtPayload } from './types/jwt-payload.interface';
+import { PROJECT_TOKEN_ROLES, ApiRole } from './constants/roles.enum';
 
 /**
  * Guard to enforce role-based permissions
@@ -41,6 +42,38 @@ export class PermissionsGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest();
     let user: JwtPayload = request.user;
+    
+    // Check if authentication is via project token
+    const hasProjectToken = request.headers['x-project-token'];
+    
+    if (hasProjectToken) {
+      this.logger.debug('Project token authentication detected, checking permissions');
+      
+      const { roles, requireAll = false } = permissionsOptions;
+      
+      // Check if all required roles are in PROJECT_TOKEN_ROLES
+      const hasPermission = requireAll
+        ? roles.every(role => PROJECT_TOKEN_ROLES.includes(role as ApiRole))
+        : roles.some(role => PROJECT_TOKEN_ROLES.includes(role as ApiRole));
+      
+      if (!hasPermission) {
+        this.logger.warn(
+          `Access denied for project token. ` +
+            `Required: ${roles.join(', ')} (requireAll: ${requireAll}), ` +
+            `Project token has: ${PROJECT_TOKEN_ROLES.join(', ')}`,
+        );
+        
+        throw new ForbiddenException(
+          `Insufficient permissions. Required role${roles.length > 1 ? 's' : ''}: ${roles.join(', ')}`,
+        );
+      }
+      
+      this.logger.debug(
+        `Access granted for project token to ${context.getClass().name}.${context.getHandler().name}`,
+      );
+      
+      return true;
+    }
 
     // If user is not set, try to extract and validate JWT from authorization header
     if (!user) {
