@@ -2,7 +2,7 @@ import { IsOptional, IsBoolean, IsNumber } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
-export class RuleQueryDto {
+export class PolicyQueryDto {
   @ApiPropertyOptional({ description: 'Project identifier (ID or name)' })
   @IsOptional()
   projectIdentifier?: string | number;
