@@ -114,11 +114,6 @@ export class DiscoveryMessageV2Dto {
   @Type(() => DiscoveryMapDto)
   mapData: DiscoveryMapDto;
 
-  @IsOptional()
-  @ValidateNested({ each: true })
-  @Type(() => RestrictionDto)
-  restrictions?: RestrictionDto[];
-
   @ApiProperty({ 
     required: false, 
     type: [DeviceFieldDto],
