@@ -18,16 +18,9 @@ export class MicroserviceModule{
           return new MicroserviceClient(options, cnf, cls)
         },
         inject: [ConfigService, ClsService]
-       },
-       {
-        provide: MicroserviceClient,
-        useFactory: (cnf: ConfigService, cls: ClsService) => {
-          return new MicroserviceClient(options, cnf, cls)
-        },
-        inject: [ConfigService, ClsService]
        }
       ],
-      exports: [options.name, MicroserviceClient]
+      exports: [options.name]
     }
   }
 }
