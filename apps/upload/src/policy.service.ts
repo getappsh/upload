@@ -1,6 +1,6 @@
 import { Injectable, UnauthorizedException, Inject, Logger } from '@nestjs/common';
 import { RuleService } from '@app/common/rules/services';
-import { CreatePolicyDto, UpdateRuleDto, RuleQueryDto, CreateRuleFieldDto } from '@app/common/rules/dto';
+import { CreatePolicyDto, UpdateRuleDto, PolicyQueryDto, CreateRuleFieldDto } from '@app/common/rules/dto';
 import { RuleType } from '@app/common/rules/enums/rule.enums';
 import { PROJECT_ACCESS_SERVICE, ProjectAccessService } from '@app/common/utils/project-access';
 import { MicroserviceClient, MicroserviceName } from '@app/common/microservice-client';
@@ -77,7 +77,7 @@ export class PolicyService {
   /**
    * Lists all policies with optional filters
    */
-  async listPolicies(query: RuleQueryDto, projectIds?: number[]) {
+  async listPolicies(query: PolicyQueryDto, projectIds?: number[]) {
     // Force type to be policy if not already set
     if (!query.type) {
       query.type = RuleType.POLICY;
@@ -91,7 +91,7 @@ export class PolicyService {
    * Lists all policies for a specific user
    * Filters by projects the user has access to
    */
-  async listPoliciesForUser(query: RuleQueryDto, userEmail: string) {
+  async listPoliciesForUser(query: PolicyQueryDto, userEmail: string) {
     if (!userEmail) {
       throw new UnauthorizedException('User authentication required to retrieve policies');
     }
@@ -104,7 +104,7 @@ export class PolicyService {
    * Gets all policies associated with a specific release by catalog ID
    */
   async getPoliciesForRelease(catalogId: string) {
-    const query: RuleQueryDto = {
+    const query: PolicyQueryDto = {
       releaseId: catalogId,
       type: RuleType.POLICY,
     };

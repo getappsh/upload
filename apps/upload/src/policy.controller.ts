@@ -1,7 +1,7 @@
 import { Controller, Logger, Inject, UnauthorizedException, ExecutionContext } from '@nestjs/common';
 import { MessagePattern, Ctx, Payload } from '@nestjs/microservices';
 import { UploadTopics } from '@app/common/microservice-client/topics';
-import { CreatePolicyDto, UpdateRuleDto, RuleQueryDto, CreateRuleFieldDto } from '@app/common/rules/dto';
+import { CreatePolicyDto, UpdateRuleDto, PolicyQueryDto, CreateRuleFieldDto } from '@app/common/rules/dto';
 import { PolicyService } from './policy.service';
 import { ValidateProjectAnyAccess, ValidateProjectListAccess, PROJECT_ACCESS_SERVICE, ProjectAccessService } from '@app/common/utils/project-access';
 
