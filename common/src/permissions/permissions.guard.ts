@@ -45,34 +45,30 @@ export class PermissionsGuard implements CanActivate {
     
     // Check if authentication is via project token
     const hasProjectToken = request.headers['x-project-token'];
+    const { roles, requireAll = false } = permissionsOptions;
     
+    // If project token is present, check if it fully satisfies the requirements
     if (hasProjectToken) {
       this.logger.debug('Project token authentication detected, checking permissions');
       
-      const { roles, requireAll = false } = permissionsOptions;
-      
       // Check if all required roles are in PROJECT_TOKEN_ROLES
-      const hasPermission = requireAll
+      const projectTokenSatisfiesAll = requireAll
         ? roles.every(role => PROJECT_TOKEN_ROLES.includes(role as ApiRole))
         : roles.some(role => PROJECT_TOKEN_ROLES.includes(role as ApiRole));
       
-      if (!hasPermission) {
-        this.logger.warn(
-          `Access denied for project token. ` +
-            `Required: ${roles.join(', ')} (requireAll: ${requireAll}), ` +
-            `Project token has: ${PROJECT_TOKEN_ROLES.join(', ')}`,
+      if (projectTokenSatisfiesAll) {
+        this.logger.debug(
+          `Access granted for project token to ${context.getClass().name}.${context.getHandler().name}`,
         );
-        
-        throw new ForbiddenException(
-          `Insufficient permissions. Required role${roles.length > 1 ? 's' : ''}: ${roles.join(', ')}`,
-        );
+        return true;
       }
       
+      // Project token doesn't satisfy all requirements, continue to JWT validation
       this.logger.debug(
-        `Access granted for project token to ${context.getClass().name}.${context.getHandler().name}`,
+        `Project token doesn't satisfy all requirements. ` +
+          `Required: ${roles.join(', ')} (requireAll: ${requireAll}), ` +
+          `Checking JWT for additional roles...`,
       );
-      
-      return true;
     }
 
     // If user is not set, try to extract and validate JWT from authorization header
@@ -80,6 +76,17 @@ export class PermissionsGuard implements CanActivate {
       const authHeader = request.headers.authorization || request.headers.Authorization;
       
       if (!authHeader) {
+        // If we have a project token but it didn't satisfy requirements and no JWT, deny
+        if (hasProjectToken) {
+          this.logger.warn(
+            `Project token present but doesn't satisfy all requirements and no JWT provided. ` +
+              `Required: ${roles.join(', ')} (requireAll: ${requireAll})`,
+          );
+          throw new ForbiddenException(
+            `Insufficient permissions. Required role${roles.length > 1 ? 's' : ''}: ${roles.join(', ')}`,
+          );
+        }
+        
         this.logger.warn('No user found in request and no authorization header provided');
         throw new UnauthorizedException('Authentication required');
       }
@@ -107,14 +114,31 @@ export class PermissionsGuard implements CanActivate {
       }
     }
 
-    const { roles, requireAll = false } = permissionsOptions;
-
-    // Validate permissions
-    const hasPermission = this.permissionsService.validatePermissions(
-      user,
-      roles,
-      requireAll,
-    );
+    // Validate permissions (combining JWT roles with project token roles if present)
+    let hasPermission: boolean;
+    
+    if (hasProjectToken) {
+      // Combine project token roles with user JWT roles
+      const userRoles = this.permissionsService.getUserRoles(user);
+      const combinedRoles = [...new Set([...PROJECT_TOKEN_ROLES, ...userRoles])];
+      
+      hasPermission = requireAll
+        ? roles.every(role => combinedRoles.includes(role))
+        : roles.some(role => combinedRoles.includes(role));
+      
+      this.logger.debug(
+        `Combined validation (project token + JWT). ` +
+          `User roles: ${userRoles.join(', ')}, ` +
+          `Project roles: ${PROJECT_TOKEN_ROLES.join(', ')}`,
+      );
+    } else {
+      // Standard JWT-only validation
+      hasPermission = this.permissionsService.validatePermissions(
+        user,
+        roles,
+        requireAll,
+      );
+    }
 
     if (!hasPermission) {
       const userRoles = this.permissionsService.getUserRoles(user);
