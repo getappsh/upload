@@ -37,6 +37,10 @@ export interface ReleaseMetadata {
   autoDeploy?: boolean;
   /** Post-installation action configuration */
   postInstallAction?: PostInstallAction;
+  /** Installation size in bytes - disk space required after installation (user-specified) */
+  installationSize?: number;
+  /** Total size in bytes - automatically calculated as installationSize + artifactsSize */
+  totalSize?: number;
   /** Additional user-defined metadata properties (flexible structure) */
   [key: string]: any;
 }
