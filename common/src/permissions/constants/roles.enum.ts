@@ -55,6 +55,8 @@ export enum ApiRole {
    */
   DELETE_RELEASE = 'delete-release',
 
+
+
   /**
    * Permission to push/deploy releases
    */
@@ -128,7 +130,7 @@ export enum ApiRole {
    */
   LINK_PROJECT_DEVICE_TYPE = 'link-project-device-type',
 
-  /**
+   /**
    * Permission to view offerings
    */
   VIEW_OFFERING = 'view-offering',

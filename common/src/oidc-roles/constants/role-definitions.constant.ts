@@ -111,12 +111,12 @@ export const COMPOSITE_ROLES: RoleDefinition[] = [
       ApiRole.LIST_ARTIFACTS,
       // View permissions
       ApiRole.VIEW_DISCOVERY,
-      ApiRole.VIEW_OFFERING,
       ApiRole.VIEW_USER,
       ApiRole.VIEW_ANALYTICS,
       ApiRole.VIEW_LOGS,
       ApiRole.VIEW_METRICS,
       ApiRole.VIEW_CONFIG,
+      ApiRole.VIEW_OFFERING,
       // Enable permissions
       ApiRole.PERMISSIONS_ENABLED,
     ],
@@ -135,11 +135,10 @@ export const COMPOSITE_ROLES: RoleDefinition[] = [
       ApiRole.MANAGE_DISCOVERY,
       ApiRole.LINK_PROJECT_DEVICE_TYPE,
       // Offerings
-      ApiRole.VIEW_OFFERING,
       ApiRole.CREATE_OFFERING,
       ApiRole.UPDATE_OFFERING,
       ApiRole.DELETE_OFFERING,
-      
+      ApiRole.VIEW_OFFERING,
       // Pushing a release to devices
       ApiRole.PUSH_RELEASE,
       
