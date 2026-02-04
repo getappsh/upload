@@ -72,6 +72,9 @@ export class ReleaseService {
     this.logger.debug(`Saving release: ${JSON.stringify(releaseEntity)}`);
     await this.releaseRepo.save(releaseEntity)
 
+    // Calculate and update totalSize after saving
+    await this.updateTotalSize(dto.projectId, dto.version);
+
     await this.refreshReleaseState(dto);
 
     return this.getRelease(dto);
@@ -260,6 +263,9 @@ export class ReleaseService {
     const saved = await this.artifactRepo.upsert(artifactEntity, upsertOptions);
     res.artifactId = saved.identifiers[0].id;
 
+    // Calculate and update totalSize after adding/updating artifact
+    await this.updateTotalSize(artifact.projectId, artifact.version);
+
     if (artifact.type === ArtifactTypeEnum.DOCKER_IMAGE) {
       this.refreshReleaseState(artifact)
     }
@@ -324,6 +330,7 @@ export class ReleaseService {
     })
     if (release) {
       this.logger.debug(`onFileCreate: File is part of release: ${release.version}, of project: ${release.project.id}`);
+      await this.updateTotalSize(release.project.id, release.version);
       this.refreshReleaseState({ projectId: release.project.id, version: release.version } as ReleaseParams);
     }
   }
@@ -337,6 +344,7 @@ export class ReleaseService {
     })
     if (release) {
       this.logger.debug(`onFileDelete: File is part of release: ${release.version}, of project: ${release.project.id}`);
+      await this.updateTotalSize(release.project.id, release.version);
       this.refreshReleaseState({ projectId: release.project.id, version: release.version } as ReleaseParams);
     }
   }
@@ -789,6 +797,55 @@ export class ReleaseService {
     } catch (error) {
       this.logger.error(`Failed to import artifact ${artifact.name}: ${error.message}`);
       throw error;
+    }
+  }
+
+  /**
+   * Calculate and update the totalSize in release metadata
+   * totalSize = installationSize + artifactsSize
+   */
+  private async updateTotalSize(projectId: number, version: string): Promise<void> {
+    this.logger.debug(`Calculating totalSize for project: ${projectId}, version: ${version}`);
+
+    try {
+      // Get the release with its artifacts and metadata
+      const release = await this.releaseRepo.findOne({
+        where: { project: { id: projectId }, version: version },
+        relations: { artifacts: { fileUpload: true } }
+      });
+
+      if (!release) {
+        this.logger.warn(`Release not found for project: ${projectId}, version: ${version}`);
+        return;
+      }
+
+      // Calculate artifacts size (sum of all uploaded file sizes)
+      const artifactsSize = release.artifacts
+        ?.filter(artifact => artifact?.fileUpload?.size)
+        ?.reduce((sum, artifact) => sum + (artifact.fileUpload.size || 0), 0) || 0;
+
+      // Get installationSize from metadata (user-specified)
+      const installationSize = release.metadata?.installationSize || 0;
+
+      // Calculate total size
+      const totalSize = installationSize + artifactsSize;
+
+      this.logger.debug(`Calculated sizes for ${version}: installationSize=${installationSize}, artifactsSize=${artifactsSize}, totalSize=${totalSize}`);
+
+      // Update metadata with the new totalSize
+      const updatedMetadata = {
+        ...release.metadata,
+        totalSize
+      };
+
+      await this.releaseRepo.update(
+        { project: { id: projectId }, version: version },
+        { metadata: updatedMetadata }
+      );
+
+      this.logger.debug(`Updated totalSize for project: ${projectId}, version: ${version}`);
+    } catch (error) {
+      this.logger.error(`Error updating totalSize for project: ${projectId}, version: ${version}: ${error.message}`);
     }
   }
 }
