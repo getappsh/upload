@@ -17,31 +17,37 @@ export enum PostInstallActionType {
 /**
  * Post-install action configuration
  */
-export interface PostInstallAction {
-  /** Action type: NONE (no action), WEB (open URL), or EXE (run executable) */
+export class PostInstallAction {
+  @ApiProperty({ enum: PostInstallActionType, description: 'Action type: NONE (no action), WEB (open URL), or EXE (run executable)' })
   type: PostInstallActionType;
-  /** URL to open (required when type is WEB) */
+
+  @ApiProperty({ required: false, description: 'URL to open (required when type is WEB)' })
   url?: string;
-  /** Executable path to run (required when type is EXE) */
+
+  @ApiProperty({ required: false, description: 'Executable path to run (required when type is EXE)' })
   exePath?: string;
 }
 
 /**
  * Release metadata configuration
  * 
- * This interface documents common metadata properties, but metadata can contain
+ * This class documents common metadata properties, but metadata can contain
  * any additional user-defined keys. The structure is flexible and extensible.
  */
-export interface ReleaseMetadata {
-  /** Enable automatic deployment of this release */
+export class ReleaseMetadata {
+  @ApiProperty({ required: false, description: 'Enable automatic deployment of this release' })
   autoDeploy?: boolean;
-  /** Post-installation action configuration */
+
+  @ApiProperty({ required: false, type: PostInstallAction, description: 'Post-installation action configuration' })
   postInstallAction?: PostInstallAction;
-  /** Installation size in bytes - disk space required after installation (user-specified) */
+
+  @ApiProperty({ required: false, type: 'integer', description: 'Installation size in bytes - disk space required after installation (user-specified)' })
   installationSize?: number;
-  /** Total size in bytes - automatically calculated as installationSize + artifactsSize */
+
+  @ApiProperty({ required: false, type: 'integer', description: 'Total size in bytes - automatically calculated as installationSize + artifactsSize' })
   totalSize?: number;
-  /** Additional user-defined metadata properties (flexible structure) */
+
+  @ApiProperty({ required: false, description: 'Additional user-defined metadata properties (flexible structure)' })
   [key: string]: any;
 }
 
@@ -67,7 +73,7 @@ export class SetReleaseDto {
   @IsOptional()
   releaseNotes?: string;
 
-  @ApiProperty({ required: false, type: 'object', description: 'Release metadata including autoDeploy and postInstallAction configuration. Additional user-defined properties are supported.' })
+  @ApiProperty({ required: false, type: ReleaseMetadata, description: 'Release metadata including autoDeploy and postInstallAction configuration. Additional user-defined properties are supported.' })
   @IsOptional()
   metadata?: ReleaseMetadata;
 
@@ -107,7 +113,7 @@ export class ReleaseDto {
   @ApiProperty()
   releaseNotes: string;
 
-  @ApiProperty({ description: 'Release metadata including autoDeploy and postInstallAction configuration. Additional user-defined properties are supported.' })
+  @ApiProperty({ type: ReleaseMetadata, description: 'Release metadata including autoDeploy and postInstallAction configuration. Additional user-defined properties are supported.' })
   metadata: ReleaseMetadata;
 
   @ApiProperty({ type: 'enum', enum: ReleaseStatusEnum })
@@ -200,7 +206,7 @@ export class ComponentV2Dto {
   @ApiProperty({ required: false })
   releaseNotes?: string;
 
-  @ApiProperty({ required: false, description: 'Component metadata including autoDeploy and postInstallAction configuration. Additional user-defined properties are supported.' })
+  @ApiProperty({ required: false, type: ReleaseMetadata, description: 'Component metadata including autoDeploy and postInstallAction configuration. Additional user-defined properties are supported.' })
   metadata?: ReleaseMetadata;
 
   @ApiProperty({ type: 'enum', enum: ReleaseStatusEnum })
