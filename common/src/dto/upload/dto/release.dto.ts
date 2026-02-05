@@ -14,6 +14,23 @@ export class ReleaseIdentifierDto {
   version: string;
 }
 
+export class PolicyAssociationDto {
+  @ApiProperty({ description: 'Associated releases for policies', type: [ReleaseIdentifierDto], required: false })
+  releases?: ReleaseIdentifierDto[];
+}
+
+export class RestrictionAssociationDto {
+  @ApiProperty({ description: 'Associated device type names for restrictions', type: [String], required: false })
+  deviceTypeNames?: string[];
+
+  @ApiProperty({ description: 'Associated OS types for restrictions', type: [String], required: false })
+  osTypes?: string[];
+
+  @ApiProperty({ description: 'Associated device IDs for restrictions', type: [String], required: false })
+  deviceIds?: string[];
+}
+
+// Combined DTO for backward compatibility
 export class RuleAssociationDto {
   @ApiProperty({ description: 'Associated releases for policies', type: [ReleaseIdentifierDto], required: false })
   releases?: ReleaseIdentifierDto[];
