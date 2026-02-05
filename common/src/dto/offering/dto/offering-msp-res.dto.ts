@@ -11,16 +11,6 @@ export class OfferingMapResDto extends IntersectionType(
   OfferingMapProductsResDto,
 ){
 
-  @ApiProperty({ 
-    type: () => [RestrictionDto],
-    required: false,
-    description: 'Restrictions applicable to this device based on device type, device ID, and OS'
-  })
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => RestrictionDto)
-  restrictions?: RestrictionDto[]
 
   toString(){
     return JSON.stringify(this)
