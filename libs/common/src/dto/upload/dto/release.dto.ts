@@ -30,20 +30,7 @@ export class RestrictionAssociationDto {
   deviceIds?: string[];
 }
 
-// Combined DTO for backward compatibility
-export class RuleAssociationDto {
-  @ApiProperty({ description: 'Associated releases for policies', type: [ReleaseIdentifierDto], required: false })
-  releases?: ReleaseIdentifierDto[];
 
-  @ApiProperty({ description: 'Associated device type names for restrictions', type: [String], required: false })
-  deviceTypeNames?: string[];
-
-  @ApiProperty({ description: 'Associated OS types for restrictions', type: [String], required: false })
-  osTypes?: string[];
-
-  @ApiProperty({ description: 'Associated device IDs for restrictions', type: [String], required: false })
-  deviceIds?: string[];
-}
 
 export class ReleasePolicyDto {
   @ApiProperty({ description: 'Policy rule ID' })
@@ -58,8 +45,8 @@ export class ReleasePolicyDto {
   @ApiProperty({ description: 'Policy type', enum: RuleType })
   type: RuleType;
 
-  @ApiProperty({ description: 'Policy associations (releases, device types, OS types, devices)', type: RuleAssociationDto })
-  association: RuleAssociationDto;
+  @ApiProperty({ description: 'Policy associations (releases, device types, OS types, devices)', type: PolicyAssociationDto })
+  association: PolicyAssociationDto;
 
   @ApiProperty({ description: 'Policy version number' })
   version: number;
@@ -175,7 +162,7 @@ export class ReleaseDto {
     dto.id = release.catalogId;
     dto.projectId = release?.project?.id;
     dto.projectName = release?.project?.name;
-    dto.name = release?.name ?? '';
+    dto.name = release.name || "";
     dto.releaseNotes = release.releaseNotes ?? "";
     dto.metadata = release.metadata;
     dto.status = release.status;
@@ -268,6 +255,9 @@ export class ComponentV2Dto {
   @ApiProperty({ required: false })
   releasedAt?: Date
 
+  @ApiProperty({ required: false, type: [ReleasePolicyDto], description: 'Policies associated with this release' })
+  policies?: ReleasePolicyDto[]
+
   static fromEntity(release: ReleaseEntity): ComponentV2Dto {
     const dto = new ComponentV2Dto();
     dto.version = release.version;
@@ -285,6 +275,21 @@ export class ComponentV2Dto {
       ?.filter(a => a.isInstallationFile)
       ?.map(a => a?.fileUpload?.size ?? 0)
       ?.reduce((size, a) => size + a, 0);
+    return dto;
+  }
+
+  static fromPendingVersion(pendingVersion: any): ComponentV2Dto {
+    const dto = new ComponentV2Dto();
+    dto.id = pendingVersion.catalogId || `${pendingVersion.projectName}@${pendingVersion.version}`;
+    dto.version = pendingVersion.version;
+    dto.projectName = pendingVersion.projectName;
+    dto.status = ReleaseStatusEnum.DRAFT;
+    dto.type = ProjectType.PRODUCT;
+    dto.createdAt = pendingVersion.firstReportedDate;
+    dto.updatedAt = pendingVersion.lastReportedDate;
+    dto.releaseNotes = `Version reported by device but not registered in getapp`;
+    dto.metadata = pendingVersion.metadata || {};
+    dto.latest = false;
     return dto;
   }
 
