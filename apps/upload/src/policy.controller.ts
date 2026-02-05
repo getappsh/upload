@@ -100,7 +100,8 @@ export class PolicyController {
    * Add a new rule field
    */
   @MessagePattern(UploadTopics.ADD_RULE_FIELD)
-  async addRuleField(@Payload() fieldData: CreateRuleFieldDto) {
+  async addRuleField(@Payload() payload: any) {
+    const fieldData = payload.value || payload;
     this.logger.log('Adding rule field');
     return this.policyService.addRuleField(fieldData);
   }
@@ -109,7 +110,8 @@ export class PolicyController {
    * Remove a rule field
    */
   @MessagePattern(UploadTopics.REMOVE_RULE_FIELD)
-  async removeRuleField(@Payload() fieldName: string) {
+  async removeRuleField(@Payload() payload: any) {
+    const fieldName = payload.value || payload;
     this.logger.log(`Removing rule field ${fieldName}`);
     return this.policyService.removeRuleField(fieldName);
   }

@@ -3,9 +3,6 @@ import { RuleService } from '@app/common/rules/services';
 import { CreatePolicyDto, UpdateRuleDto, PolicyQueryDto, CreateRuleFieldDto } from '@app/common/rules/dto';
 import { RuleType } from '@app/common/rules/enums/rule.enums';
 import { PROJECT_ACCESS_SERVICE, ProjectAccessService } from '@app/common/utils/project-access';
-import { MicroserviceClient, MicroserviceName } from '@app/common/microservice-client';
-import { DeviceTopics } from '@app/common/microservice-client/topics';
-import { firstValueFrom } from 'rxjs';
 import { RuleValidationService } from '@app/common/rules/services/rule-validation.service';
 
 @Injectable()
@@ -15,8 +12,11 @@ export class PolicyService {
   constructor(
     private readonly ruleService: RuleService,
     private readonly ruleValidationService: RuleValidationService,
-    @Inject(PROJECT_ACCESS_SERVICE) private readonly uploadService: ProjectAccessService & { getUserProjectIds: (email: string) => Promise<number[]>; getProjectIdsByNames: (names: string[]) => Promise<number[]> },
-    @Inject(MicroserviceName.DEVICE_SERVICE) private readonly deviceClient: MicroserviceClient,
+    @Inject(PROJECT_ACCESS_SERVICE) 
+    private readonly uploadService: ProjectAccessService & { 
+      getUserProjectIds: (email: string) => Promise<number[]>; 
+      getProjectIdsByNames: (names: string[]) => Promise<number[]>;
+    },
   ) {}
 
   /**
@@ -114,30 +114,24 @@ export class PolicyService {
   }
 
   /**
-   * Gets all available rule fields from discovery service via Kafka
+   * Gets all available rule fields from the database
    */
   async getAvailableFields() {
-    return firstValueFrom(
-      this.deviceClient.send(DeviceTopics.GET_RULE_FIELDS, {})
-    );
+    return this.ruleValidationService.getAvailableFields();
   }
 
   /**
-   * Adds a new rule field via discovery service via Kafka
+   * Adds a new rule field to the database
    */
   async addRuleField(fieldData: any) {
-    return firstValueFrom(
-      this.deviceClient.send(DeviceTopics.ADD_RULE_FIELD, fieldData)
-    );
+    return this.ruleValidationService.addRuleField(fieldData);
   }
 
   /**
-   * Removes a rule field via discovery service via Kafka
+   * Removes a rule field from the database
    */
   async removeRuleField(fieldName: string) {
-    return firstValueFrom(
-      this.deviceClient.send(DeviceTopics.REMOVE_RULE_FIELD, fieldName)
-    );
+    return this.ruleValidationService.removeRuleField(fieldName);
   }
 
   /**
