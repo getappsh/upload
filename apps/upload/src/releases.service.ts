@@ -1,5 +1,6 @@
 import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum, RuleEntity, RuleReleaseEntity } from "@app/common/database/entities";
 import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto, ReleaseEventType, ReleaseEventEnum, ReleaseChangedEventDto, GetReleaseArtifactResDto, ReleaseArtifactNameParams, UpdateFilePropertiesDto } from "@app/common/dto/upload";
+import { AppError, ErrorCode } from "@app/common/dto/error";
 import { Inject, Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Not, Repository } from "typeorm";
@@ -164,7 +165,7 @@ export class ReleaseService {
 
   private async getReleaseEntity(params: { projectId: number, version: string }): Promise<ReleaseEntity> {
     return await this.releaseRepo.findOne({
-      select: { project: { id: true, name: true }, dependentReleases: { version: true, project: { id: true, name: true } } },
+      select: { project: { id: true, name: true }, dependentReleases: { name: true, version: true, project: { id: true, name: true } } },
       where: {
         project: { id: params.projectId },
         version: params.version
@@ -182,9 +183,9 @@ export class ReleaseService {
   async getReleases(projectIdentifier: number | string): Promise<ReleaseDto[]> {
     this.logger.log(`Getting releases for project: ${projectIdentifier}`);
 
-     const projectCondition = typeof projectIdentifier === 'number'
-    ? { id: projectIdentifier }
-    : { name: projectIdentifier };
+    const projectCondition = typeof projectIdentifier === 'number'
+      ? { id: projectIdentifier }
+      : { name: projectIdentifier };
 
     const releases = await this.releaseRepo.find({
       where: {
@@ -201,6 +202,25 @@ export class ReleaseService {
   async deleteRelease(params: ReleaseParams): Promise<string> {
     this.logger.log(`Deleting release of project: ${params.projectId}, version: ${params.version}`);
     const release = await this.getRelease(params);
+
+    // Get the full release entity with dependentReleases to check if any releases depend on it
+    const releaseEntity = await this.getReleaseEntity(params);
+
+    // Check if there are releases that depend on this release
+    if (releaseEntity.dependentReleases && releaseEntity.dependentReleases.length > 0) {
+      const dependentReleasesList = releaseEntity.dependentReleases.map(dep => ({
+        projectName: dep.project.name,
+        releaseName: dep.name || dep.version,
+        version: dep.version
+      }));
+
+      throw new AppError(
+        ErrorCode.RELEASE_HAS_DEPENDENTS,
+        `Cannot delete release because other releases depend on it.`,
+        400,
+        { dependentReleases: dependentReleasesList }
+      );
+    }
 
     const regulationStatuses = await this.regulationService.getVersionRegulationsStatuses(params);
     for (const regulationStatus of regulationStatuses) {
@@ -221,12 +241,12 @@ export class ReleaseService {
 
   }
 
-  async  updateLatestForProject(projectId: number) {
+  async updateLatestForProject(projectId: number) {
     await this.releaseRepo
-        .createQueryBuilder()
-        .update(ReleaseEntity)
-        .set({
-            latest: () => `
+      .createQueryBuilder()
+      .update(ReleaseEntity)
+      .set({
+        latest: () => `
                 CASE 
                     WHEN catalog_id = (
                         SELECT catalog_id 
@@ -239,10 +259,10 @@ export class ReleaseService {
                     ELSE FALSE 
                 END
             `,
-        })
-        .where("project_id = :projectId", { projectId, status: ReleaseStatusEnum.RELEASED })
-        .execute();
-}
+      })
+      .where("project_id = :projectId", { projectId, status: ReleaseStatusEnum.RELEASED })
+      .execute();
+  }
 
   async setReleaseArtifact(artifact: SetReleaseArtifactDto): Promise<SetReleaseArtifactResDto> {
     this.logger.log(`Adding release artifact for release: ${artifact.version}, artifactName: ${artifact.artifactName}`);
@@ -260,7 +280,7 @@ export class ReleaseService {
     artifactEntity.isInstallationFile = artifact.isInstallationFile;
     artifactEntity.arguments = artifact.arguments;
     artifactEntity.isExecutable = artifact.isExecutable;
-    
+
     const res = new SetReleaseArtifactResDto();
     const upsertOptions: UpsertOptions<ReleaseArtifactEntity> = { conflictPaths: [] };
 
@@ -268,6 +288,7 @@ export class ReleaseService {
 
       const uploadDto = {
         fileName: artifact.artifactName,
+        // TODO consider adding version id to object key to avoid overwriting same version of other branches
         objectKey: `${artifact.projectId}/${artifact.version}`,
         userId: 'release',
       } as CreateFileUploadUrlDto
@@ -314,8 +335,11 @@ export class ReleaseService {
       await this.artifactRepo.delete({ id: params.artifactId })
       this.fileUploadService.deleteItemRow(artifact.fileUpload.id)
         .catch(err => this.logger.error(`Error deleting file upload row from the db: ${artifact.fileUpload.id}, error: ${err}`));
-    }else {
-      await this.onFileDelete(artifact.fileUpload);
+    } else {
+      // For docker images, handle file upload if exists, then delete the artifact
+      if (artifact.fileUpload) {
+        await this.onFileDelete(artifact.fileUpload);
+      }
       await this.artifactRepo.delete({ id: params.artifactId })
     }
 
@@ -339,7 +363,7 @@ export class ReleaseService {
     res.downloadUrl = downloadUrl;
     res.artifactId = artifact.id;
     this.logger.debug(`Release artifact download url: ${downloadUrl}, artifact Id: ${artifact.id}`);
-  
+
     return res
   }
 
@@ -473,13 +497,13 @@ export class ReleaseService {
       version: params.version,
       project: { id: params.projectId },
       status: Not(ReleaseStatusEnum.RELEASED)
-      },
+    },
       {
         requiredRegulationsCount: regulations.length,
         compliantRegulationsCount: numCompliant
       });
 
-    
+
     let changeStatus = null;
 
     const dependenciesReleased = release?.dependencies?.length > 0 && release?.dependencies?.every(dep => dep.status === ReleaseStatusEnum.RELEASED);
@@ -490,17 +514,17 @@ export class ReleaseService {
     const fileUploaded = installationArtifacts?.length > 0 && await this.fileUploadService
       .areFilesUploaded(
         installationArtifacts
-          .filter((artifact) =>  artifact?.type === ArtifactTypeEnum.FILE)
+          .filter((artifact) => artifact?.type === ArtifactTypeEnum.FILE)
           .map((artifact) => artifact?.fileUpload?.id)
       );
 
     this.logger.log(`Release: ${params.version} for project: ${params.projectId} has ${installationArtifacts.length} installation files and they are ready: ${fileUploaded}`);
-    
+
     this.logger.debug(`Release: ${params.version} for project: ${params.projectId}, status: ${release.status}, regulationsCompliant: ${regulationsCompliant}, dependenciesReleased: ${dependenciesReleased}, fileUploaded: ${fileUploaded}`);
-   
+
     if ((!regulationsCompliant || (!dependenciesReleased && !fileUploaded)) && release.status === ReleaseStatusEnum.RELEASED) {
       this.logger.log(`Setting release status to in_review for project: ${params.projectId}, version: ${params.version}`);
-      const res = await this.releaseRepo.update({ version: params.version, project: { id: params.projectId } }, { status: ReleaseStatusEnum.IN_REVIEW, releasedAt: null});
+      const res = await this.releaseRepo.update({ version: params.version, project: { id: params.projectId } }, { status: ReleaseStatusEnum.IN_REVIEW, releasedAt: null });
       if (res.affected > 0) {
         this.updateLatestForProject(params.projectId);
         release?.dependentReleases?.forEach(dep => {
@@ -516,16 +540,16 @@ export class ReleaseService {
       // const res = await this.releaseRepo.update({ version: params.version, project: { id: params.projectId } }, { status: ReleaseStatusEnum.RELEASED});
       const res = await this.releaseRepo.createQueryBuilder()
         .update()
-        .set({ 
+        .set({
           status: ReleaseStatusEnum.RELEASED,
           releasedAt: () => `CASE WHEN released_at IS NULL THEN NOW() ELSE released_at END`
         })
-        .where("version = :version AND project_id = :projectId", { 
-          version: params.version, 
-          projectId: params.projectId 
+        .where("version = :version AND project_id = :projectId", {
+          version: params.version,
+          projectId: params.projectId
         })
         .execute();
-        
+
       if (res.affected > 0) {
         this.updateLatestForProject(params.projectId);
         release?.dependentReleases?.forEach(dep => {
@@ -535,13 +559,13 @@ export class ReleaseService {
 
         changeStatus = ReleaseStatusEnum.RELEASED
       }
-      
+
     }
 
     this.sendProjectReleasesChangedEvent(params.projectId, release.catalogId, changeStatus);
   }
   async updateFileMetadata(dto: UpdateFilePropertiesDto) {
-    
+
     const affectedRows = await this.artifactRepo.update(
       { id: dto.id },
         {
@@ -665,7 +689,7 @@ export class ReleaseService {
     const releaseEntity = this.releaseRepo.create();
     releaseEntity.project = { id: projectId } as unknown as ProjectEntity;
     releaseEntity.version = dto.version;
-    releaseEntity.name = dto.name;
+    releaseEntity.name = dto.name || dto.version; // Use version as name if name is not provided
     releaseEntity.releaseNotes = dto.releaseNotes || '';
     releaseEntity.metadata = dto.metadata || {};
     releaseEntity.status = ReleaseStatusEnum.DRAFT; // Always create as draft
