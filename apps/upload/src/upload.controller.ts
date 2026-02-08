@@ -13,6 +13,7 @@ import { RegulationStatusParams, SetRegulationCompliancyDto, SetRegulationStatus
 import { ValidateProjectAnyAccess } from '@app/common/utils/project-access';
 import { RegulationChangedEvent } from '@app/common/dto/project-management';
 import { AuthUser } from './utils/auth-user.decorator';
+import { PolicyService } from './policy.service';
 
 
 @Controller()
@@ -24,7 +25,8 @@ export class UploadController {
     private readonly uploadService: UploadService,
     private readonly fileUploadService: FileUploadService,
     private readonly releasesService: ReleaseService,
-    private readonly regulationService: RegulationStatusService
+    private readonly regulationService: RegulationStatusService,
+    private readonly policyService: PolicyService,
 
   ) {}
   
@@ -181,6 +183,12 @@ export class UploadController {
   @EventPattern(UploadTopicsEmit.PROJECT_REGULATION_CHANGED)
   async onProjectRegulationChanged(@RpcPayload() event: RegulationChangedEvent) {
     await this.releasesService.onProjectRegulationChanged(event);
+  }
+
+  @EventPattern(UploadTopicsEmit.SYNC_DEVICE_RULE_FIELDS)
+  async syncDeviceRuleFields(@RpcPayload() data: { deviceId: string; fields: Array<{ name: string; type: string; label?: string; description?: string }> }) {
+    this.logger.log(`Received device rule fields sync request from device ${data.deviceId}`);
+    await this.policyService.syncDeviceFields(data);
   }
 
   private readImageVersion(){

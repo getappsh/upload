@@ -1,6 +1,7 @@
 import { DatabaseModule, UploadJwtConfigService } from '@app/common';
+import { RuleModule } from '@app/common/rules';
 import { S3Service } from '@app/common/AWS/s3.service';
-import { FileUploadEntity, MemberEntity, MemberProjectEntity, ProjectEntity, RegulationEntity, RegulationStatusEntity, ReleaseArtifactEntity, ReleaseEntity, UploadVersionEntity} from '@app/common/database/entities';
+import { FileUploadEntity, RegulationEntity, RegulationStatusEntity, ReleaseArtifactEntity, ReleaseEntity, UploadVersionEntity, RuleFieldEntity, RuleEntity, RuleReleaseEntity, RuleDeviceTypeEntity, RuleDeviceEntity, RuleOsEntity} from '@app/common/database/entities';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -21,6 +22,8 @@ import { RegulationEnforcementService } from './regulation-enforcement.service';
 import { JUnitParserService } from './utils/junit-parser.service';
 import { PROJECT_ACCESS_SERVICE } from '@app/common/utils/project-access';
 import { CosignSignatureService } from '@app/common/AWS/cosign-signature.service';
+import { PolicyService } from './policy.service';
+import { PolicyController } from './policy.controller';
 import { FileProcessingService } from '@app/common/AWS/file-processing.service';
 import { PermissionsModule } from '@app/common/permissions/permissions.module';
 
@@ -33,21 +36,31 @@ import { PermissionsModule } from '@app/common/permissions/permissions.module';
       type: MicroserviceType.OFFERING,
       id: 'upload'
     }),
+    MicroserviceModule.register({
+      name: MicroserviceName.DEVICE_SERVICE,
+      type: MicroserviceType.DEVICE,
+      id: 'upload'
+    }),
     ApmModule,
     DatabaseModule,
+    RuleModule,
     HttpModule,
     JwtModule.registerAsync({
       useClass: UploadJwtConfigService
     }),
     TypeOrmModule.forFeature([
       UploadVersionEntity, 
-      ProjectEntity,
        FileUploadEntity, 
        ReleaseEntity, 
        ReleaseArtifactEntity, 
-       MemberProjectEntity,
        RegulationStatusEntity,
-       RegulationEntity]),
+       RegulationEntity,
+       RuleFieldEntity,
+       RuleEntity,
+       RuleReleaseEntity,
+       RuleDeviceTypeEntity,
+       RuleDeviceEntity,
+       RuleOsEntity]),
     SafeCronModule,
     MicroserviceModule.register({
       name: MicroserviceName.PROJECT_MANAGEMENT_SERVICE,
@@ -56,7 +69,7 @@ import { PermissionsModule } from '@app/common/permissions/permissions.module';
     }),
     PermissionsModule.forRoot(),
   ],
-  controllers: [UploadController],
+  controllers: [UploadController, PolicyController],
   providers: [
     UploadService, 
     S3Service, 
@@ -68,6 +81,7 @@ import { PermissionsModule } from '@app/common/permissions/permissions.module';
     RegulationEnforcementService,
     JUnitParserService,
     CosignSignatureService,
+    PolicyService,
     FileProcessingService,
     {
       provide: PROJECT_ACCESS_SERVICE,
