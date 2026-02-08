@@ -47,7 +47,7 @@ export class ReleaseMetadata {
   @ApiProperty({ required: false, type: 'integer', description: 'Total size in bytes - automatically calculated as installationSize + artifactsSize' })
   totalSize?: number;
 
-  @ApiProperty({ required: false, description: 'Additional user-defined metadata properties (flexible structure)' })
+  //@ApiProperty({ required: false, description: 'Additional user-defined metadata properties (flexible structure)' })
   [key: string]: any;
 }
 
