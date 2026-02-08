@@ -56,7 +56,6 @@ export enum ApiRole {
   DELETE_RELEASE = 'delete-release',
 
 
-
   /**
    * Permission to push/deploy releases
    */
