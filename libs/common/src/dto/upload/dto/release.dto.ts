@@ -4,6 +4,65 @@ import { IsNotEmpty, IsOptional, IsSemVer, IsString, IsBoolean } from "class-val
 import { ReleaseArtifactDto } from "./release-artifact.dto";
 import { Type } from "class-transformer";
 import { ProjectIdentifierParams } from "@app/common/dto/project-management";
+import { RuleType } from "@app/common/rules/enums/rule.enums";
+
+export class ReleaseIdentifierDto {
+  @ApiProperty({ description: 'Project name' })
+  projectName: string;
+
+  @ApiProperty({ description: 'Release version' })
+  version: string;
+}
+
+export class PolicyAssociationDto {
+  @ApiProperty({ description: 'Associated releases for policies', type: [ReleaseIdentifierDto], required: false })
+  releases?: ReleaseIdentifierDto[];
+}
+
+export class RestrictionAssociationDto {
+  @ApiProperty({ description: 'Associated device type names for restrictions', type: [String], required: false })
+  deviceTypeNames?: string[];
+
+  @ApiProperty({ description: 'Associated OS types for restrictions', type: [String], required: false })
+  osTypes?: string[];
+
+  @ApiProperty({ description: 'Associated device IDs for restrictions', type: [String], required: false })
+  deviceIds?: string[];
+}
+
+
+
+export class ReleasePolicyDto {
+  @ApiProperty({ description: 'Policy rule ID' })
+  id: string;
+
+  @ApiProperty({ description: 'Policy name' })
+  name: string;
+
+  @ApiProperty({ description: 'Policy description', required: false })
+  description?: string;
+
+  @ApiProperty({ description: 'Policy type', enum: RuleType })
+  type: RuleType;
+
+  @ApiProperty({ description: 'Policy associations (releases, device types, OS types, devices)', type: PolicyAssociationDto })
+  association: PolicyAssociationDto;
+
+  @ApiProperty({ description: 'Policy version number' })
+  version: number;
+
+  @ApiProperty({ description: 'Policy creation timestamp' })
+  createdAt: string;
+
+  @ApiProperty({ description: 'Policy last update timestamp' })
+  updatedAt: string;
+
+  @ApiProperty({ description: 'Whether the policy is active' })
+  isActive: boolean;
+
+  @ApiProperty({ description: 'The policy rule definition conforming to rule engine schema' })
+  rule: any;
+}
 
 /**
  * Post-install action types
@@ -187,6 +246,9 @@ export class DetailedReleaseDto extends ReleaseDto {
   @ApiProperty({ type: ReleaseDto, isArray: true, required: false })
   dependencies: ReleaseDto[]
 
+  @ApiProperty({ type: ReleasePolicyDto, isArray: true, required: false, description: 'Policies associated with this release' })
+  policies?: ReleasePolicyDto[];
+
 
   static fromEntity(release: ReleaseEntity, userCanEditImported?: boolean): DetailedReleaseDto {
     const baseDto = super.fromEntity(release, userCanEditImported);
@@ -195,6 +257,16 @@ export class DetailedReleaseDto extends ReleaseDto {
     Object.assign(dto, baseDto);
 
     dto.artifacts = release?.artifacts?.map(art => ReleaseArtifactDto.fromEntity(art))
+    dto.dependencies = release?.dependencies?.map(dep => ReleaseDto.fromEntity(dep))
+    dto.policies = release?.policyAssociations?.map(policyAssoc => {
+      const policy = new ReleasePolicyDto();
+      policy.id = policyAssoc.rule.id;
+      policy.name = policyAssoc.rule.name;
+      policy.description = policyAssoc.rule.description;
+      policy.isActive = policyAssoc.rule.isActive;
+      policy.rule = policyAssoc.rule.rule;
+      return policy;
+    }) ?? [];
     dto.dependencies = release?.dependencies?.map(dep => ReleaseDto.fromEntity(dep, userCanEditImported))
 
     return dto
@@ -238,6 +310,9 @@ export class ComponentV2Dto {
 
   @ApiProperty({ required: false })
   releasedAt?: Date
+
+  @ApiProperty({ required: false, type: [ReleasePolicyDto], description: 'Policies associated with this release' })
+  policies?: ReleasePolicyDto[]
 
   static fromEntity(release: ReleaseEntity): ComponentV2Dto {
     const dto = new ComponentV2Dto();
