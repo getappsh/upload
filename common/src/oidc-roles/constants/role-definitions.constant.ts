@@ -55,7 +55,19 @@ export const ROLE_DESCRIPTIONS: Partial<Record<ApiRole, string>> = {
   [ApiRole.VIEW_LOGS]: 'Permission to view system logs',
   [ApiRole.VIEW_METRICS]: 'Permission to view system metrics',
 
-  // Configuration
+
+
+  // Policies & Rules Management
+  [ApiRole.CREATE_POLICY]: 'Permission to create policies (release-associated rules)',
+  [ApiRole.VIEW_POLICY]: 'Permission to view policy details',
+  [ApiRole.UPDATE_POLICY]: 'Permission to update existing policies',
+  [ApiRole.DELETE_POLICY]: 'Permission to delete policies',
+  [ApiRole.LIST_POLICIES]: 'Permission to list/browse all policies',
+  [ApiRole.CREATE_RESTRICTION]: 'Permission to create restrictions (device-associated rules)',
+  [ApiRole.VIEW_RESTRICTION]: 'Permission to view restriction details',
+  [ApiRole.UPDATE_RESTRICTION]: 'Permission to update existing restrictions',
+  [ApiRole.DELETE_RESTRICTION]: 'Permission to delete restrictions',
+  [ApiRole.LIST_RESTRICTIONS]: 'Permission to list/browse all restrictions',
   [ApiRole.MANAGE_CONFIG]: 'Permission to manage system configuration',
   [ApiRole.VIEW_CONFIG]: 'Permission to view system configuration',
 };
@@ -116,6 +128,13 @@ export const COMPOSITE_ROLES: RoleDefinition[] = [
       ApiRole.VIEW_LOGS,
       ApiRole.VIEW_METRICS,
       ApiRole.VIEW_CONFIG,
+      // Policies & Rules
+      ApiRole.CREATE_POLICY,
+      ApiRole.VIEW_POLICY,
+      ApiRole.UPDATE_POLICY,
+      ApiRole.DELETE_POLICY,
+      ApiRole.LIST_POLICIES,
+      
       ApiRole.VIEW_OFFERING,
       // Enable permissions
       ApiRole.PERMISSIONS_ENABLED,
@@ -155,6 +174,17 @@ export const COMPOSITE_ROLES: RoleDefinition[] = [
       // Configuration
       ApiRole.MANAGE_CONFIG,
       ApiRole.VIEW_CONFIG,
+      // Policies & Rules Management
+      ApiRole.CREATE_POLICY,
+      ApiRole.VIEW_POLICY,
+      ApiRole.UPDATE_POLICY,
+      ApiRole.DELETE_POLICY,
+      ApiRole.LIST_POLICIES,
+      ApiRole.CREATE_RESTRICTION,
+      ApiRole.VIEW_RESTRICTION,
+      ApiRole.UPDATE_RESTRICTION,
+      ApiRole.DELETE_RESTRICTION,
+      ApiRole.LIST_RESTRICTIONS,
       // View permissions (Projects, Releases, Artifacts)
       ApiRole.VIEW_PROJECT,
       ApiRole.LIST_PROJECTS,
