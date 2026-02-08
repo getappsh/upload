@@ -25,6 +25,7 @@ import { CosignSignatureService } from '@app/common/AWS/cosign-signature.service
 import { PolicyService } from './policy.service';
 import { PolicyController } from './policy.controller';
 import { FileProcessingService } from '@app/common/AWS/file-processing.service';
+import { PermissionsModule } from '@app/common/permissions/permissions.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { FileProcessingService } from '@app/common/AWS/file-processing.service';
       type: MicroserviceType.PROJECT_MANAGEMENT,
       id: 'upload'
     }),
+    PermissionsModule.forRoot(),
   ],
   controllers: [UploadController, PolicyController],
   providers: [
