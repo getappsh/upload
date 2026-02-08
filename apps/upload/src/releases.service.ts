@@ -1,7 +1,7 @@
 import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum } from "@app/common/database/entities";
 import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto, ReleaseEventType, ReleaseEventEnum, ReleaseChangedEventDto, GetReleaseArtifactResDto, ReleaseArtifactNameParams, UpdateFilePropertiesDto } from "@app/common/dto/upload";
 import { AppError, ErrorCode } from "@app/common/dto/error";
-import { Inject, Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException, ConflictException, BadRequestException, ForbiddenException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Not, Repository } from "typeorm";
 import { FileUploadService } from "./file-upload.service";
@@ -15,6 +15,7 @@ import { ExportReleaseDto, ExportArtifactDto, ExportDockerImageDto, ExportDepend
 import { MinioClientService } from "@app/common/AWS/minio-client.service";
 import { ConfigService } from "@nestjs/config";
 import { ClsService } from 'nestjs-cls';
+import { ApiRole, PermissionsService } from "@app/common";
 
 
 @Injectable()
@@ -32,10 +33,38 @@ export class ReleaseService {
     private readonly minioClient: MinioClientService,
     private readonly configService: ConfigService,
     private readonly cls: ClsService,
+    private readonly permissionsService: PermissionsService,
   ) {
 
     this.fileUploadService.onFileCreate(file => this.onFileCreate(file));
     this.fileUploadService.onFileDelete(file => this.onFileDelete(file));
+  }
+
+  /**
+   * Check if user has permission to edit an imported release that is in released status
+   */
+  private checkReadonlyReleasePermission(release: ReleaseEntity): void {
+    // If release is imported and in released status, it's readonly
+    if (release.isImported && release.status === ReleaseStatusEnum.RELEASED) {
+      const user = this.cls.get('user');
+      
+      // Use PermissionsService to check for the special edit-imported-release role
+      const hasPermission = this.permissionsService.hasRole(user, ApiRole.EDIT_IMPORTED_RELEASE);
+      
+      if (!hasPermission) {
+        const username = user?.preferred_username || user?.email || 'unknown';
+        this.logger.warn(
+          `User ${username} attempted to modify readonly imported release ` +
+          `(project: ${release.project?.id || 'unknown'}, version: ${release.version})`
+        );
+        throw new ForbiddenException(
+          'This is an imported release in released status and is read-only. ' +
+          'You need the "edit-imported-release" permission to modify it.'
+        );
+      }
+      
+      this.logger.log(`User ${user?.preferred_username} has permission to edit readonly imported release`);
+    }
   }
 
   async setRelease(dto: SetReleaseDto, userEmail?: string): Promise<ReleaseDto> {
@@ -44,6 +73,11 @@ export class ReleaseService {
     const releaseEntity = await this.releaseRepo.findOneBy({ project: { id: dto.projectId }, version: dto.version }) ?? this.releaseRepo.create();
     
     const isNewRelease = !releaseEntity.catalogId;
+
+    // Check permission if trying to update an existing readonly imported release
+    if (!isNewRelease) {
+      this.checkReadonlyReleasePermission(releaseEntity);
+    }
 
     releaseEntity.project = { id: dto.projectId } as unknown as ProjectEntity;
     releaseEntity.version = dto.version;
@@ -109,7 +143,9 @@ export class ReleaseService {
       if (!release) {
         throw new NotFoundException(`Release not found for project: ${params.projectId}, version: ${params.version}`);
       }
-      return DetailedReleaseDto.fromEntity(release);
+      const user = this.cls.get('user');
+      const userCanEditImported = user ? this.permissionsService.hasRole(user, ApiRole.EDIT_IMPORTED_RELEASE) : false;
+      return DetailedReleaseDto.fromEntity(release, userCanEditImported);
     })
   }
 
@@ -144,7 +180,9 @@ export class ReleaseService {
       relations: ['project'],
       select: { project: { id: true, name: true } }
     })
-    return releases.map((release) => ReleaseDto.fromEntity(release));
+    const user = this.cls.get('user');
+    const userCanEditImported = user ? this.permissionsService.hasRole(user, ApiRole.EDIT_IMPORTED_RELEASE) : false;
+    return releases.map((release) => ReleaseDto.fromEntity(release, userCanEditImported));
   }
 
 
@@ -221,6 +259,9 @@ export class ReleaseService {
       throw new NotFoundException(`Release not found for id: ${artifact.version}`);
     }
 
+    // Check permission for readonly imported releases
+    this.checkReadonlyReleasePermission(release);
+
     const artifactEntity = new ReleaseArtifactEntity();
     artifactEntity.type = artifact.type;
     artifactEntity.artifactName = artifact.artifactName;
@@ -270,14 +311,17 @@ export class ReleaseService {
   async deleteReleaseArtifact(params: ReleaseArtifactParams): Promise<string> {
     this.logger.log(`Deleting release artifact of release: ${params.version}, artifact Id: ${params.artifactId}`);
     const artifact = await this.artifactRepo.findOne({
-      select: { fileUpload: { id: true } },
+      select: { fileUpload: { id: true }, release: { isImported: true, status: true } },
       where: { release: { project: { id: params.projectId }, version: params.version }, id: params.artifactId },
-      relations: { fileUpload: true }
+      relations: { fileUpload: true, release: true }
     });
 
     if (!artifact) {
       throw new NotFoundException(`Release artifact not found for project: ${params.projectId} release: ${params.version}, artifact Id: ${params.artifactId}`);
     }
+
+    // Check permission for readonly imported releases
+    this.checkReadonlyReleasePermission(artifact.release);
 
     if (artifact.type == ArtifactTypeEnum.FILE) {
       await this.fileUploadService.removeFile(artifact.fileUpload.id);
@@ -514,6 +558,19 @@ export class ReleaseService {
     this.sendProjectReleasesChangedEvent(params.projectId, release.catalogId, changeStatus);
   }
   async updateFileMetadata(dto: UpdateFilePropertiesDto) {
+    // First fetch the artifact with its release to check permissions
+    const artifact = await this.artifactRepo.findOne({
+      select: { id: true, release: { isImported: true, status: true, version: true, project: { id: true } } },
+      where: { id: dto.id },
+      relations: { release: { project: true } }
+    });
+
+    if (!artifact) {
+      throw new NotFoundException(`Artifact not found with id: ${dto.id}`);
+    }
+
+    // Check permission for readonly imported releases
+    this.checkReadonlyReleasePermission(artifact.release);
 
     const affectedRows = await this.artifactRepo.update(
       { id: dto.id },
@@ -643,6 +700,7 @@ export class ReleaseService {
     releaseEntity.metadata = dto.metadata || {};
     releaseEntity.status = ReleaseStatusEnum.DRAFT; // Always create as draft
     releaseEntity.createdBy = dto.author;
+    releaseEntity.isImported = true; // Flag this release as imported
     releaseEntity.requiredRegulationsCount = await this.regulationRepo.count({ where: { project: { id: projectId } } });
 
     // Handle dependencies
