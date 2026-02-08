@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
+import { DEFAULT_ALLOW_ALL_DEVICES_RULE_NAME, DEFAULT_ALLOW_ALL_DEVICES_RULE_ID } from "../../rules/constants";
 
 export class CreateRulesTables1765200000000 implements MigrationInterface {
     name = 'CreateRulesTables1765200000000'
@@ -134,8 +135,8 @@ export class CreateRulesTables1765200000000 implements MigrationInterface {
         await queryRunner.query(`
             INSERT INTO "rules" ("id", "name", "description", "type", "version", "isActive", "rule")
             VALUES (
-                '00000000-0000-0000-0000-000000000001',
-                'Allow All Devices',
+                '${DEFAULT_ALLOW_ALL_DEVICES_RULE_ID}',
+                '${DEFAULT_ALLOW_ALL_DEVICES_RULE_NAME}',
                 'Default policy that allows all devices to download a component. This rule is automatically applied to all existing and new releases unless manually removed.',
                 'policy',
                 1,
@@ -148,7 +149,7 @@ export class CreateRulesTables1765200000000 implements MigrationInterface {
         // Link default rule to all existing eleases (using ON CONFLICT DO NOTHING)
         await queryRunner.query(`
             INSERT INTO "rule_releases" ("rule_id", "release_catalog_id")
-            SELECT '00000000-0000-0000-0000-000000000001', "catalog_id"
+            SELECT '${DEFAULT_ALLOW_ALL_DEVICES_RULE_ID}', "catalog_id"
             FROM "release"
             WHERE "catalog_id" IS NOT NULL
             ON CONFLICT ("rule_id", "release_catalog_id") DO NOTHING
