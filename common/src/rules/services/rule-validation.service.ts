@@ -1,7 +1,8 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, HttpStatus } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RuleFieldEntity } from '../../database/entities/rule-field.entity';
+import { AppError, ErrorCode } from '../../dto/error';
 
 @Injectable()
 export class RuleValidationService {
@@ -11,8 +12,9 @@ export class RuleValidationService {
     @InjectRepository(RuleFieldEntity)
     private readonly ruleFieldRepository: Repository<RuleFieldEntity>,
   ) {
-    // Dynamically import @usex/rule-engine as ES module
-    this.ruleEnginePromise = import('@usex/rule-engine').then(module => module.RuleEngine);
+    // Dynamically import @usex/rule-engine as ES module using the ESM entry point
+    // Use eval to prevent webpack from converting import() to require()
+    this.ruleEnginePromise = (0, eval)("import('@usex/rule-engine/dist/esm/index.js')").then(module => module.RuleEngine);
   }
 
   /**
@@ -38,8 +40,10 @@ export class RuleValidationService {
         throw new Error(errorMessage);
       }
     } catch (error) {
-      throw new BadRequestException(
+      throw new AppError(
+        ErrorCode.RULE_VALIDATION_FAILED,
         `Rule validation failed: ${error.message || 'Invalid rule structure'}`,
+        HttpStatus.BAD_REQUEST,
       );
     }
 
@@ -94,9 +98,11 @@ export class RuleValidationService {
     const missingFields = fieldNames.filter(name => !existingFieldNames.has(name));
 
     if (missingFields.length > 0) {
-      throw new BadRequestException(
+      throw new AppError(
+        ErrorCode.RULE_FIELD_NOT_SUPPORTED,
         `The following fields are not supported: ${missingFields.join(', ')}. ` +
         `Please add them to the available fields before using them in rules.`,
+        HttpStatus.BAD_REQUEST,
       );
     }
   }
@@ -119,7 +125,11 @@ export class RuleValidationService {
     });
 
     if (existing) {
-      throw new BadRequestException(`Field "${fieldData.name}" already exists`);
+      throw new AppError(
+        ErrorCode.RULE_FIELD_ALREADY_EXISTS,
+        `Field "${fieldData.name}" already exists`,
+        HttpStatus.CONFLICT,
+      );
     }
 
     const field = this.ruleFieldRepository.create(fieldData);
@@ -129,15 +139,20 @@ export class RuleValidationService {
   /**
    * Removes a rule field
    */
-  async removeRuleField(fieldName: string): Promise<void> {
+  async removeRuleField(fieldName: string): Promise<{ success: boolean; message: string }> {
     const field = await this.ruleFieldRepository.findOne({
       where: { name: fieldName },
     });
 
     if (!field) {
-      throw new BadRequestException(`Field "${fieldName}" not found`);
+      throw new AppError(
+        ErrorCode.RULE_FIELD_NOT_FOUND,
+        `Field "${fieldName}" not found`,
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     await this.ruleFieldRepository.remove(field);
+    return { success: true, message: 'Field removed successfully' };
   }
 }
