@@ -3,6 +3,7 @@ import { Type } from "class-transformer";
 import { IsArray, IsBoolean, IsInt, IsOptional, IsString, ValidateNested } from "class-validator";
 import { DiscoveryMessageV2Dto } from "../../discovery";
 import { ComponentV2Dto } from "../../upload";
+import { RestrictionDto } from "../../discovery/dto/restriction.dto";
 
 
 export class DeviceTypeProjectRefDto {
@@ -115,6 +116,16 @@ export class DeviceComponentsOfferingDto {
   @ValidateNested({ each: true })
   @Type(() => ReleaseOfferingDto)
   releases: ReleaseOfferingDto[]
+
+  @ApiProperty({ 
+    type: () => [RestrictionDto],
+    required: false,
+    description: 'List of applicable restrictions for the device based on device ID, device type, OS, and other metadata'
+  })
+  @IsArray()
+  @IsOptional()
+  restrictions?: RestrictionDto[]
+
 
   toString() {
     return JSON.stringify(this)

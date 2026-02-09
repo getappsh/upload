@@ -4,6 +4,111 @@ import { IsNotEmpty, IsOptional, IsSemVer, IsString, IsBoolean } from "class-val
 import { ReleaseArtifactDto } from "./release-artifact.dto";
 import { Type } from "class-transformer";
 import { ProjectIdentifierParams } from "@app/common/dto/project-management";
+import { RuleType } from "@app/common/rules/enums/rule.enums";
+
+export class ReleaseIdentifierDto {
+  @ApiProperty({ description: 'Project name' })
+  projectName: string;
+
+  @ApiProperty({ description: 'Release version' })
+  version: string;
+}
+
+export class PolicyAssociationDto {
+  @ApiProperty({ description: 'Associated releases for policies', type: [ReleaseIdentifierDto], required: false })
+  releases?: ReleaseIdentifierDto[];
+}
+
+export class RestrictionAssociationDto {
+  @ApiProperty({ description: 'Associated device type names for restrictions', type: [String], required: false })
+  deviceTypeNames?: string[];
+
+  @ApiProperty({ description: 'Associated OS types for restrictions', type: [String], required: false })
+  osTypes?: string[];
+
+  @ApiProperty({ description: 'Associated device IDs for restrictions', type: [String], required: false })
+  deviceIds?: string[];
+}
+
+
+
+export class ReleasePolicyDto {
+  @ApiProperty({ description: 'Policy rule ID' })
+  id: string;
+
+  @ApiProperty({ description: 'Policy name' })
+  name: string;
+
+  @ApiProperty({ description: 'Policy description', required: false })
+  description?: string;
+
+  @ApiProperty({ description: 'Policy type', enum: RuleType })
+  type: RuleType;
+
+  @ApiProperty({ description: 'Policy associations (releases, device types, OS types, devices)', type: PolicyAssociationDto })
+  association: PolicyAssociationDto;
+
+  @ApiProperty({ description: 'Policy version number' })
+  version: number;
+
+  @ApiProperty({ description: 'Policy creation timestamp' })
+  createdAt: string;
+
+  @ApiProperty({ description: 'Policy last update timestamp' })
+  updatedAt: string;
+
+  @ApiProperty({ description: 'Whether the policy is active' })
+  isActive: boolean;
+
+  @ApiProperty({ description: 'The policy rule definition conforming to rule engine schema' })
+  rule: any;
+}
+
+/**
+ * Post-install action types
+ */
+export enum PostInstallActionType {
+  NONE = 'NONE',
+  WEB = 'WEB',
+  EXE = 'EXE'
+}
+
+/**
+ * Post-install action configuration
+ */
+export class PostInstallAction {
+  @ApiProperty({ enum: PostInstallActionType, description: 'Action type: NONE (no action), WEB (open URL), or EXE (run executable)' })
+  type: PostInstallActionType;
+
+  @ApiProperty({ required: false, description: 'URL to open (required when type is WEB)' })
+  url?: string;
+
+  @ApiProperty({ required: false, description: 'Executable path to run (required when type is EXE)' })
+  exePath?: string;
+}
+
+/**
+ * Release metadata configuration
+ * 
+ * This class documents common metadata properties, but metadata can contain
+ * any additional user-defined keys. The structure is flexible and extensible.
+ */
+export class ReleaseMetadata {
+  @ApiProperty({ required: false, description: 'Enable automatic deployment of this release' })
+  autoDeploy?: boolean;
+
+  @ApiProperty({ required: false, type: PostInstallAction, description: 'Post-installation action configuration' })
+  postInstallAction?: PostInstallAction;
+
+  @ApiProperty({ required: false, type: 'integer', description: 'Installation size in bytes - disk space required after installation (user-specified)' })
+  installationSize?: number;
+
+  @ApiProperty({ required: false, type: 'integer', description: 'Total size in bytes - automatically calculated as installationSize + artifactsSize' })
+  totalSize?: number;
+
+  //@ApiProperty({ required: false, description: 'Additional user-defined metadata properties (flexible structure)' })
+  [key: string]: any;
+}
 
 export class SetReleaseDto {
 
@@ -27,9 +132,9 @@ export class SetReleaseDto {
   @IsOptional()
   releaseNotes?: string;
 
-  @ApiProperty({ required: false, type: 'object' })
+  @ApiProperty({ required: false, type: ReleaseMetadata, description: 'Release metadata including autoDeploy and postInstallAction configuration. Additional user-defined properties are supported.' })
   @IsOptional()
-  metadata?: Record<string, any>;
+  metadata?: ReleaseMetadata;
 
   @ApiProperty({ required: false, default: true })
   @IsBoolean()
@@ -67,8 +172,8 @@ export class ReleaseDto {
   @ApiProperty()
   releaseNotes: string;
 
-  @ApiProperty()
-  metadata: Record<string, any>;
+  @ApiProperty({ type: ReleaseMetadata, description: 'Release metadata including autoDeploy and postInstallAction configuration. Additional user-defined properties are supported.' })
+  metadata: ReleaseMetadata;
 
   @ApiProperty({ type: 'enum', enum: ReleaseStatusEnum })
   status: ReleaseStatusEnum;
@@ -132,6 +237,9 @@ export class DetailedReleaseDto extends ReleaseDto {
   @ApiProperty({ type: ReleaseDto, isArray: true, required: false })
   dependencies: ReleaseDto[]
 
+  @ApiProperty({ type: ReleasePolicyDto, isArray: true, required: false, description: 'Policies associated with this release' })
+  policies?: ReleasePolicyDto[];
+
 
   static fromEntity(release: ReleaseEntity): DetailedReleaseDto {
     const baseDto = super.fromEntity(release);
@@ -141,6 +249,15 @@ export class DetailedReleaseDto extends ReleaseDto {
 
     dto.artifacts = release?.artifacts?.map(art => ReleaseArtifactDto.fromEntity(art))
     dto.dependencies = release?.dependencies?.map(dep => ReleaseDto.fromEntity(dep))
+    dto.policies = release?.policyAssociations?.map(policyAssoc => {
+      const policy = new ReleasePolicyDto();
+      policy.id = policyAssoc.rule.id;
+      policy.name = policyAssoc.rule.name;
+      policy.description = policyAssoc.rule.description;
+      policy.isActive = policyAssoc.rule.isActive;
+      policy.rule = policyAssoc.rule.rule;
+      return policy;
+    }) ?? [];
 
     return dto
 
@@ -160,8 +277,8 @@ export class ComponentV2Dto {
   @ApiProperty({ required: false })
   releaseNotes?: string;
 
-  @ApiProperty({ required: false })
-  metadata?: Record<string, any>;
+  @ApiProperty({ required: false, type: ReleaseMetadata, description: 'Component metadata including autoDeploy and postInstallAction configuration. Additional user-defined properties are supported.' })
+  metadata?: ReleaseMetadata;
 
   @ApiProperty({ type: 'enum', enum: ReleaseStatusEnum })
   status: ReleaseStatusEnum;
@@ -183,6 +300,9 @@ export class ComponentV2Dto {
 
   @ApiProperty({ required: false })
   releasedAt?: Date
+
+  @ApiProperty({ required: false, type: [ReleasePolicyDto], description: 'Policies associated with this release' })
+  policies?: ReleasePolicyDto[]
 
   static fromEntity(release: ReleaseEntity): ComponentV2Dto {
     const dto = new ComponentV2Dto();
