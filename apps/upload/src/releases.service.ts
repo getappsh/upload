@@ -47,22 +47,22 @@ export class ReleaseService {
    * Check if user has permission to edit an imported release that is in released status
    */
   private checkReadonlyReleasePermission(release: ReleaseEntity): void {
-    // If release is imported and in released status, it's readonly
-    if (release.isImported && release.status === ReleaseStatusEnum.RELEASED) {
+    // If release is in released status, it's readonly
+    if (release.status === ReleaseStatusEnum.RELEASED) {
       const user = this.cls.get('user');
       
-      // Use PermissionsService to check for the special edit-imported-release role
-      const hasPermission = this.permissionsService.hasRole(user, ApiRole.EDIT_IMPORTED_RELEASE);
+      // Use PermissionsService to check for the special edit-released-release role
+      const hasPermission = this.permissionsService.hasRole(user, ApiRole.EDIT_RELEASED_RELEASE);
       
       if (!hasPermission) {
         const username = user?.preferred_username || user?.email || 'unknown';
         this.logger.warn(
-          `User ${username} attempted to modify readonly imported release ` +
+          `User ${username} attempted to modify readonly release ` +
           `(project: ${release.project?.id || 'unknown'}, version: ${release.version})`
         );
         throw new ForbiddenException(
-          'This is an imported release in released status and is read-only. ' +
-          'You need the "edit-imported-release" permission to modify it.'
+          'This release in released status and is read-only. ' +
+          'You need the "edit-released-release" permission to modify it.'
         );
       }
       
@@ -196,7 +196,7 @@ export class ReleaseService {
         throw new NotFoundException(`Release not found for project: ${params.projectId}, version: ${params.version}`);
       }
       const user = this.cls.get('user');
-      const userCanEditImported = user ? this.permissionsService.hasRole(user, ApiRole.EDIT_IMPORTED_RELEASE) : false;
+      const userCanEditImported = user ? this.permissionsService.hasRole(user, ApiRole.EDIT_RELEASED_RELEASE) : false;
       return DetailedReleaseDto.fromEntity(release, userCanEditImported);
     })
   }
@@ -234,7 +234,7 @@ export class ReleaseService {
       select: { project: { id: true, name: true } }
     })
     const user = this.cls.get('user');
-    const userCanEditImported = user ? this.permissionsService.hasRole(user, ApiRole.EDIT_IMPORTED_RELEASE) : false;
+    const userCanEditImported = user ? this.permissionsService.hasRole(user, ApiRole.EDIT_RELEASED_RELEASE) : false;
     return releases.map((release) => ReleaseDto.fromEntity(release, userCanEditImported));
   }
 
