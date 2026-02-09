@@ -202,7 +202,13 @@ export class ReleaseDto {
   @ApiProperty({ required: false })
   updatedBy?: string
 
-  static fromEntity(release: ReleaseEntity): ReleaseDto {
+  @ApiProperty({ description: 'Indicates if this release was imported from another system' })
+  isImported: boolean
+
+  @ApiProperty({ description: 'Indicates if this release is read-only (imported releases that are released)' })
+  readonly: boolean
+
+  static fromEntity(release: ReleaseEntity, userCanEditImported?: boolean): ReleaseDto {
     const dto = new ReleaseDto();
     dto.version = release.version;
     dto.id = release.catalogId;
@@ -220,6 +226,9 @@ export class ReleaseDto {
     dto.releasedAt = release.releasedAt ?? undefined;
     dto.createdBy = release.createdBy ?? undefined;
     dto.updatedBy = release.updatedBy ?? undefined;
+    dto.isImported = release.isImported ?? false;
+    // Readonly if it's imported AND released, but user doesn't have edit permission
+    dto.readonly = dto.isImported && release.status === ReleaseStatusEnum.RELEASED && !userCanEditImported;
 
     return dto;
   }
@@ -241,8 +250,8 @@ export class DetailedReleaseDto extends ReleaseDto {
   policies?: ReleasePolicyDto[];
 
 
-  static fromEntity(release: ReleaseEntity): DetailedReleaseDto {
-    const baseDto = super.fromEntity(release);
+  static fromEntity(release: ReleaseEntity, userCanEditImported?: boolean): DetailedReleaseDto {
+    const baseDto = super.fromEntity(release, userCanEditImported);
     const dto = new DetailedReleaseDto();
 
     Object.assign(dto, baseDto);
@@ -258,6 +267,7 @@ export class DetailedReleaseDto extends ReleaseDto {
       policy.rule = policyAssoc.rule.rule;
       return policy;
     }) ?? [];
+    dto.dependencies = release?.dependencies?.map(dep => ReleaseDto.fromEntity(dep, userCanEditImported))
 
     return dto
 
@@ -319,7 +329,7 @@ export class ComponentV2Dto {
     dto.releasedAt = release.releasedAt ?? undefined;
     dto.size = release?.artifacts
       ?.filter(a => a.isInstallationFile)
-      ?.map(a => a?.fileUpload?.size ?? 0)
+      ?.map(a => Number(a?.fileUpload?.size) || 0)
       ?.reduce((size, a) => size + a, 0);
     return dto;
   }
