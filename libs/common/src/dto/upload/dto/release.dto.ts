@@ -314,6 +314,7 @@ export class ComponentV2Dto {
   @ApiProperty({ required: false, type: [ReleasePolicyDto], description: 'Policies associated with this release' })
   policies?: ReleasePolicyDto[]
 
+
   static fromEntity(release: ReleaseEntity): ComponentV2Dto {
     const dto = new ComponentV2Dto();
     dto.version = release.version;
@@ -329,7 +330,7 @@ export class ComponentV2Dto {
     dto.releasedAt = release.releasedAt ?? undefined;
     dto.size = release?.artifacts
       ?.filter(a => a.isInstallationFile)
-      ?.map(a => a?.fileUpload?.size ?? 0)
+      ?.map(a => Number(a?.fileUpload?.size) || 0)
       ?.reduce((size, a) => size + a, 0);
     return dto;
   }
