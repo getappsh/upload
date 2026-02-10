@@ -86,7 +86,14 @@ export class ReleaseService {
     releaseEntity.version = dto.version;
     releaseEntity.name = dto?.name;
     releaseEntity.releaseNotes = dto?.releaseNotes;;
-    releaseEntity.metadata = dto?.metadata;
+    const normalizedMetadata = dto?.metadata ? { ...dto.metadata } : undefined;
+    if (normalizedMetadata && normalizedMetadata.installationSize !== undefined) {
+      const parsedInstallationSize = Number(normalizedMetadata.installationSize);
+      normalizedMetadata.installationSize = Number.isFinite(parsedInstallationSize)
+        ? parsedInstallationSize
+        : 0;
+    }
+    releaseEntity.metadata = normalizedMetadata;
     if (dto?.isDraft === true) {
       releaseEntity.status = ReleaseStatusEnum.DRAFT
     } else if (dto?.isDraft === false) {
@@ -933,10 +940,13 @@ export class ReleaseService {
       // Calculate artifacts size (sum of all uploaded file sizes)
       const artifactsSize = release.artifacts
         ?.filter(artifact => artifact?.fileUpload?.size)
-        ?.reduce((sum, artifact) => sum + (artifact.fileUpload.size || 0), 0) || 0;
+        ?.reduce((sum, artifact) => sum + Number(artifact.fileUpload.size || 0), 0) || 0;
 
       // Get installationSize from metadata (user-specified)
-      const installationSize = release.metadata?.installationSize || 0;
+      const rawInstallationSize = release.metadata?.installationSize;
+      const installationSize = Number.isFinite(Number(rawInstallationSize))
+        ? Number(rawInstallationSize)
+        : 0;
 
       // Calculate total size
       const totalSize = installationSize + artifactsSize;
