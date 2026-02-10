@@ -961,7 +961,7 @@ export class ReleaseService {
 
       await this.releaseRepo.update(
         { project: { id: projectId }, version: version },
-        { metadata: updatedMetadata }
+        { metadata: updatedMetadata } as any
       );
 
       this.logger.debug(`Updated totalSize for project: ${projectId}, version: ${version}`);
