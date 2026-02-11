@@ -44,6 +44,8 @@ export const UploadTopics = {
     // Export/Import
     EXPORT_RELEASE: `getapp-upload.export-release${region}`,
     IMPORT_RELEASE: `getapp-upload.import-release${region}`,
+    // Deployment Report
+    GET_DEPLOYMENT_REPORT: `getapp-upload.get-deployment-report${region}`,
 
 } as const
 
