@@ -4,6 +4,7 @@ import { UploadTopics } from '@app/common/microservice-client/topics';
 import { CreatePolicyDto, UpdateRuleDto, PolicyQueryDto, CreateRuleFieldDto } from '@app/common/rules/dto';
 import { PolicyService } from './policy.service';
 import { ValidateProjectAnyAccess, ValidateProjectListAccess, PROJECT_ACCESS_SERVICE, ProjectAccessService } from '@app/common/utils/project-access';
+import { RpcPayload } from '@app/common/microservice-client';
 
 @Controller()
 export class PolicyController {
@@ -88,9 +89,8 @@ export class PolicyController {
    */
   @ValidateProjectListAccess('association.releases')
   @MessagePattern(UploadTopics.CREATE_POLICY)
-  async createPolicy(@Payload() Payload: any) {
+  async createPolicy(@RpcPayload() createPolicyDto: CreatePolicyDto) {
     this.logger.log('Creating policy');
-    const { value: createPolicyDto , headers } = Payload ;
     return this.policyService.createPolicy(createPolicyDto);
   }
 
@@ -117,10 +117,9 @@ export class PolicyController {
     return [];
   })
   @MessagePattern(UploadTopics.UPDATE_POLICY)
-  async updatePolicy(@Payload() payload: any) {
-    const data = payload.value || payload;
-    this.logger.log(`Updating policy ${data.id}`);
-    return this.policyService.updatePolicy(data.id, data.data);
+  async updatePolicy(@RpcPayload() payload: { id: string; data: UpdateRuleDto }) {
+    this.logger.log(`Updating policy ${payload.id}`);
+    return this.policyService.updatePolicy(payload.id, payload.data);
   }
 
   /**
