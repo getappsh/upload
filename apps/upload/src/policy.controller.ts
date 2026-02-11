@@ -1,4 +1,4 @@
-import { Controller, Logger, Inject, UnauthorizedException, ExecutionContext } from '@nestjs/common';
+import { Controller, Logger, Inject, UnauthorizedException } from '@nestjs/common';
 import { MessagePattern, Ctx, Payload } from '@nestjs/microservices';
 import { UploadTopics } from '@app/common/microservice-client/topics';
 import { CreatePolicyDto, UpdateRuleDto, PolicyQueryDto, CreateRuleFieldDto } from '@app/common/rules/dto';
@@ -14,13 +14,40 @@ export class PolicyController {
     @Inject(PROJECT_ACCESS_SERVICE) private readonly uploadService: ProjectAccessService & { getUserProjectIds: (email: string) => Promise<number[]> },
   ) {}
 
-  private getUserEmailFromPayload(payload: any): string | undefined {
-    const rawUser = payload?.headers?.user;
+  private extractUserEmailFromContext(context: any, payload: any): string | undefined {
+    // Try to extract user from Kafka context
+    try {
+      // For Kafka: context is RpcArgumentsHost with args[0] containing {data, headers}
+      if (context?.args && Array.isArray(context.args) && context.args[0]) {
+        const headers = context.args[0].headers;
+        if (headers?.user) {
+          return this.parseUserEmail(headers.user);
+        }
+      }
+    } catch (e) {
+      this.logger.debug('Failed to extract user from Kafka context');
+    }
 
+    // Try to extract from payload headers (formatDataV2 structure)
+    if (payload?.headers?.user) {
+      return this.parseUserEmail(payload.headers.user);
+    }
+
+    // Fallback: try direct payload
+    if (payload?.user) {
+      return this.parseUserEmail(payload.user);
+    }
+
+    this.logger.debug('No user found in context or payload');
+    return undefined;
+  }
+
+  private parseUserEmail(rawUser: any): string | undefined {
     if (!rawUser) {
       return undefined;
     }
 
+    // Handle JSON string
     if (typeof rawUser === 'string') {
       try {
         const parsed = JSON.parse(rawUser);
@@ -30,31 +57,8 @@ export class PolicyController {
       }
     }
 
+    // Handle object
     return rawUser?.email;
-  }
-
-  private extractUserEmailFromContext(context: any, payload: any): string | undefined {
-    // Try to get user from Kafka context (RPC context with data/headers)
-    let headers = context?.args?.[0]?.headers || context?.getMessage()?.headers;
-
-    if (headers) {
-      const rawUser = headers.user;
-      if (rawUser) {
-        if (typeof rawUser === 'string') {
-          try {
-            const parsed = JSON.parse(rawUser);
-            return parsed?.email;
-          } catch {
-            // Fallback to payload if context parsing fails
-          }
-        } else {
-          return rawUser?.email;
-        }
-      }
-    }
-
-    // Fallback to extracting from payload
-    return this.getUserEmailFromPayload(payload);
   }
 
   /**
