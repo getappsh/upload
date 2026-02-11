@@ -14,15 +14,58 @@ export class PolicyController {
     @Inject(PROJECT_ACCESS_SERVICE) private readonly uploadService: ProjectAccessService & { getUserProjectIds: (email: string) => Promise<number[]> },
   ) {}
 
+  private getUserEmailFromPayload(payload: any): string | undefined {
+    const rawUser = payload?.headers?.user;
+
+    if (!rawUser) {
+      return undefined;
+    }
+
+    if (typeof rawUser === 'string') {
+      try {
+        const parsed = JSON.parse(rawUser);
+        return parsed?.email;
+      } catch {
+        return undefined;
+      }
+    }
+
+    return rawUser?.email;
+  }
+
+  private extractUserEmailFromContext(context: any, payload: any): string | undefined {
+    // Try to get user from Kafka context (RPC context with data/headers)
+    let headers = context?.args?.[0]?.headers || context?.getMessage()?.headers;
+
+    if (headers) {
+      const rawUser = headers.user;
+      if (rawUser) {
+        if (typeof rawUser === 'string') {
+          try {
+            const parsed = JSON.parse(rawUser);
+            return parsed?.email;
+          } catch {
+            // Fallback to payload if context parsing fails
+          }
+        } else {
+          return rawUser?.email;
+        }
+      }
+    }
+
+    // Fallback to extracting from payload
+    return this.getUserEmailFromPayload(payload);
+  }
+
   /**
    * Get all policies
    * Filters policies based on projects the user has access to
    */
   @MessagePattern(UploadTopics.GET_POLICIES)
-  async getPolicies(@Payload() payload: any) {
+  async getPolicies(@Payload() payload: any, @Ctx() context: any) {
     this.logger.log('Getting policies');
     const query = payload.value || payload || {};
-    const userEmail = payload.headers?.user?.email;
+    const userEmail = this.extractUserEmailFromContext(context, payload);
     return this.policyService.listPoliciesForUser(query, userEmail);
   }
 
@@ -51,9 +94,9 @@ export class PolicyController {
    * Get a specific policy by ID
    */
   @MessagePattern(UploadTopics.GET_POLICY)
-  async getPolicy(@Payload() payload: any) {
+  async getPolicy(@Payload() payload: any, @Ctx() context: any) {
     const id = payload.value || payload;
-    const userEmail = payload.headers?.user?.email;
+    const userEmail = this.extractUserEmailFromContext(context, payload);
     this.logger.log(`Getting policy ${id}`);
     return this.policyService.getPolicyForUser(id, userEmail);
   }
@@ -80,9 +123,9 @@ export class PolicyController {
    * Delete a policy
    */
   @MessagePattern(UploadTopics.DELETE_POLICY)
-  async deletePolicy(@Payload() payload: any) {
+  async deletePolicy(@Payload() payload: any, @Ctx() context: any) {
     const id = payload.value || payload;
-    const userEmail = payload.headers?.user?.email;
+    const userEmail = this.extractUserEmailFromContext(context, payload);
     this.logger.log(`Deleting policy ${id}`);
     return this.policyService.deletePolicyForUser(id, userEmail);
   }
