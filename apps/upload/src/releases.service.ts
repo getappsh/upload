@@ -1,5 +1,5 @@
-import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum, RuleEntity, RuleReleaseEntity } from "@app/common/database/entities";
-import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto, ReleaseEventType, ReleaseEventEnum, ReleaseChangedEventDto, GetReleaseArtifactResDto, ReleaseArtifactNameParams, UpdateFilePropertiesDto } from "@app/common/dto/upload";
+import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum, RuleEntity, RuleReleaseEntity, DeliveryStatusEntity, DeployStatusEntity, DeliveryStatusEnum, DeployStatusEnum } from "@app/common/database/entities";
+import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto, ReleaseEventType, ReleaseEventEnum, ReleaseChangedEventDto, GetReleaseArtifactResDto, ReleaseArtifactNameParams, UpdateFilePropertiesDto, DeploymentReportDto } from "@app/common/dto/upload";
 import { AppError, ErrorCode } from "@app/common/dto/error";
 import { Inject, Injectable, Logger, NotFoundException, ConflictException, BadRequestException, ForbiddenException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -9,7 +9,7 @@ import { UpsertOptions } from "typeorm/repository/UpsertOptions";
 import { RegulationStatusService } from "./regulation-status.service";
 import { MinimalReleaseDto, ProjectReleasesChangedEvent, RegulationChangedEvent, RegulationChangedEventType, RegulationParams } from "@app/common/dto/project-management";
 import { MicroserviceClient, MicroserviceName } from "@app/common/microservice-client";
-import { OfferingTopicsEmit, ProjectManagementTopicsEmit } from "@app/common/microservice-client/topics";
+import { OfferingTopicsEmit, ProjectManagementTopicsEmit, OfferingTopics } from "@app/common/microservice-client/topics";
 import { lastValueFrom } from "rxjs";
 import { ExportReleaseDto, ExportArtifactDto, ExportDockerImageDto, ExportDependencyDto, ImportReleaseDto, ImportReleaseResponseDto, ArtifactWarningDto } from "@app/common/dto/delivery";
 import { MinioClientService } from "@app/common/AWS/minio-client.service";
@@ -30,6 +30,8 @@ export class ReleaseService {
     @InjectRepository(RegulationEntity) private readonly regulationRepo: Repository<RegulationEntity>,
     @InjectRepository(RuleEntity) private readonly ruleRepo: Repository<RuleEntity>,
     @InjectRepository(RuleReleaseEntity) private readonly ruleReleaseRepo: Repository<RuleReleaseEntity>,
+    @InjectRepository(DeliveryStatusEntity) private readonly deliveryStatusRepo: Repository<DeliveryStatusEntity>,
+    @InjectRepository(DeployStatusEntity) private readonly deployStatusRepo: Repository<DeployStatusEntity>,
     @Inject(MicroserviceName.OFFERING_SERVICE) private readonly offeringClient: MicroserviceClient,
     private readonly fileUploadService: FileUploadService,
     private readonly regulationService: RegulationStatusService,
@@ -967,6 +969,114 @@ export class ReleaseService {
       this.logger.debug(`Updated totalSize for project: ${projectId}, version: ${version}`);
     } catch (error) {
       this.logger.error(`Error updating totalSize for project: ${projectId}, version: ${version}: ${error.message}`);
+    }
+  }
+
+  async getDeploymentReport(params: ReleaseParams): Promise<DeploymentReportDto> {
+    try {
+      this.logger.log(`Generating deployment report for project: ${params.projectId}, version: ${params.version}`);
+
+      const release = await this.releaseRepo.findOneBy({
+        project: { id: params.projectId },
+        version: params.version,
+      });
+
+      if (!release) {
+        throw new NotFoundException(`Release not found for project: ${params.projectId}, version: ${params.version}`);
+      }
+
+      // Get the catalog ID for this release
+      const catalogId = release.catalogId;
+
+      // Query delivery status - devices that have downloaded or are downloading
+      const deliveryStatuses = await this.deliveryStatusRepo.find({
+        where: { catalogId },
+      });
+
+      // Query deploy status - devices that have installed
+      const deployStatuses = await this.deployStatusRepo.find({
+        where: { catalogId },
+      });
+
+      // Count devices with different status
+      const downloadedCount = new Set(
+        deliveryStatuses
+          .filter((d) => d.deliveryStatus === DeliveryStatusEnum.DONE)
+          .map((d) => d.device?.ID || d.device)
+      ).size;
+
+      const installedCount = new Set(
+        deployStatuses
+          .filter((d) => d.deployStatus === DeployStatusEnum.DONE)
+          .map((d) => d.device?.ID || d.device)
+      ).size;
+
+      // Active delivery includes:
+      // 1. Devices currently downloading (deliveryStatus != DONE and != CANCELLED and != DELETED)
+      // 2. Devices waiting to install but haven't downloaded yet (deployStatus != DONE)
+      const activeDeliveryIds = new Set<any>();
+      
+      // Add devices that are in the process of downloading or have finished downloading
+      deliveryStatuses.forEach((d) => {
+        const status = d.deliveryStatus;
+        if (status !== DeliveryStatusEnum.CANCELLED && status !== DeliveryStatusEnum.DELETED) {
+          activeDeliveryIds.add(d.device?.ID || d.device);
+        }
+      });
+
+      // Add devices that are in deployment process but not yet installed
+      deployStatuses.forEach((d) => {
+        const status = d.deployStatus;
+        if (status !== DeployStatusEnum.CANCELLED && status !== DeployStatusEnum.UNINSTALL) {
+          activeDeliveryIds.add(d.device?.ID || d.device);
+        }
+      });
+
+      const activeDeliveryCount = activeDeliveryIds.size;
+
+      // Get devices offered to the release based on device type
+      // This queries the offering service for devices that match the release's device type offerings
+      let offeredDevicesCount = 0;
+      try {
+        const offeringResult = await lastValueFrom(
+          this.offeringClient.send(OfferingTopics.GET_OFFERING_FOR_ALL_PROJECTS, {
+            catalogId: catalogId,
+          })
+        ) as any;
+
+        if (offeringResult && offeringResult.devices) {
+          offeredDevicesCount = new Set(offeringResult.devices.map((d: any) => d.id || d)).size;
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Could not get offering info for catalogId: ${catalogId}. Error: ${error.message}`
+        );
+        // If we can't get offering data, use all devices in active delivery as fallback
+        offeredDevicesCount = activeDeliveryCount;
+      }
+
+      // Calculate deployment percentage
+      let deploymentPercentage = 0;
+      if (activeDeliveryCount > 0) {
+        deploymentPercentage = (installedCount / activeDeliveryCount) * 100;
+      }
+
+      const report: DeploymentReportDto = {
+        projectId: params.projectId,
+        releaseName: release.name,
+        version: params.version,
+        downloadedCount,
+        installedCount,
+        activeDeliveryCount,
+        offeredDevicesCount,
+        deploymentPercentage: Math.round(deploymentPercentage * 100) / 100, // Round to 2 decimal places
+      };
+
+      this.logger.log(`Deployment report generated: ${JSON.stringify(report)}`);
+      return report;
+    } catch (error) {
+      this.logger.error(`Error generating deployment report: ${error.message}`);
+      throw error;
     }
   }
 }

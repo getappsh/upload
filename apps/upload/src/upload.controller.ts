@@ -3,7 +3,7 @@ import { RoleInProject, UploadVersionEntity } from '@app/common/database/entitie
 import { Controller, Logger, UseInterceptors } from '@nestjs/common';
 import { EventPattern, MessagePattern, RpcException } from '@nestjs/microservices';
 import { UploadService } from './upload.service';
-import { CreateFileUploadUrlDto, ReleaseArtifactNameParams, ReleaseArtifactParams, ReleaseParams, SetReleaseArtifactDto, SetReleaseDto, UpdateFileUploadDto, UpdateUploadStatusDto, UpdateFilePropertiesDto } from '@app/common/dto/upload';
+import { CreateFileUploadUrlDto, ReleaseArtifactNameParams, ReleaseArtifactParams, ReleaseParams, SetReleaseArtifactDto, SetReleaseDto, UpdateFileUploadDto, UpdateUploadStatusDto, UpdateFilePropertiesDto, DeploymentReportDto } from '@app/common/dto/upload';
 import { RpcPayload, UserContextInterceptor } from '@app/common/microservice-client';
 import * as fs from 'fs';
 import { FileUploadService } from './file-upload.service';
@@ -189,6 +189,13 @@ export class UploadController {
   async syncDeviceRuleFields(@RpcPayload() data: { deviceId: string; fields: Array<{ name: string; type: string; label?: string; description?: string }> }) {
     this.logger.log(`Received device rule fields sync request from device ${data.deviceId}`);
     await this.policyService.syncDeviceFields(data);
+  }
+
+  @ValidateProjectAnyAccess()
+  @MessagePattern(UploadTopics.GET_DEPLOYMENT_REPORT)
+  async getDeploymentReport(@RpcPayload() params: ReleaseParams) {
+    this.logger.log(`Getting deployment report for project: ${params.projectIdentifier}, version: ${params.version}`);
+    return this.releasesService.getDeploymentReport(params);
   }
 
   private readImageVersion(){
