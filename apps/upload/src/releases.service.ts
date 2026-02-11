@@ -9,7 +9,7 @@ import { UpsertOptions } from "typeorm/repository/UpsertOptions";
 import { RegulationStatusService } from "./regulation-status.service";
 import { MinimalReleaseDto, ProjectReleasesChangedEvent, RegulationChangedEvent, RegulationChangedEventType, RegulationParams } from "@app/common/dto/project-management";
 import { MicroserviceClient, MicroserviceName } from "@app/common/microservice-client";
-import { OfferingTopicsEmit, ProjectManagementTopicsEmit, OfferingTopics } from "@app/common/microservice-client/topics";
+import { OfferingTopicsEmit, ProjectManagementTopicsEmit, OfferingTopics, DeliveryTopics, DeployTopics } from "@app/common/microservice-client/topics";
 import { lastValueFrom } from "rxjs";
 import { ExportReleaseDto, ExportArtifactDto, ExportDockerImageDto, ExportDependencyDto, ImportReleaseDto, ImportReleaseResponseDto, ArtifactWarningDto } from "@app/common/dto/delivery";
 import { MinioClientService } from "@app/common/AWS/minio-client.service";
@@ -30,8 +30,8 @@ export class ReleaseService {
     @InjectRepository(RegulationEntity) private readonly regulationRepo: Repository<RegulationEntity>,
     @InjectRepository(RuleEntity) private readonly ruleRepo: Repository<RuleEntity>,
     @InjectRepository(RuleReleaseEntity) private readonly ruleReleaseRepo: Repository<RuleReleaseEntity>,
-    @InjectRepository(DeliveryStatusEntity) private readonly deliveryStatusRepo: Repository<DeliveryStatusEntity>,
-    @InjectRepository(DeployStatusEntity) private readonly deployStatusRepo: Repository<DeployStatusEntity>,
+    @Inject(MicroserviceName.DELIVERY_SERVICE) private readonly deliveryClient: MicroserviceClient,
+    @Inject(MicroserviceName.DEPLOY_SERVICE) private readonly deployClient: MicroserviceClient,
     @Inject(MicroserviceName.OFFERING_SERVICE) private readonly offeringClient: MicroserviceClient,
     private readonly fileUploadService: FileUploadService,
     private readonly regulationService: RegulationStatusService,
@@ -988,15 +988,27 @@ export class ReleaseService {
       // Get the catalog ID for this release
       const catalogId = release.catalogId;
 
-      // Query delivery status - devices that have downloaded or are downloading
-      const deliveryStatuses = await this.deliveryStatusRepo.find({
-        where: { catalogId },
-      });
+      // Request delivery status from delivery microservice
+      let deliveryStatuses = [];
+      try {
+        const deliveryResponse = await lastValueFrom(
+          this.deliveryClient.send(DeliveryTopics.GET_DELIVERY_STATUSES, { catalogId })
+        ) as any;
+        deliveryStatuses = deliveryResponse || [];
+      } catch (error) {
+        this.logger.warn(`Failed to get delivery statuses from delivery service: ${error.message}`);
+      }
 
-      // Query deploy status - devices that have installed
-      const deployStatuses = await this.deployStatusRepo.find({
-        where: { catalogId },
-      });
+      // Request deploy status from deploy microservice
+      let deployStatuses = [];
+      try {
+        const deployResponse = await lastValueFrom(
+          this.deployClient.send(DeployTopics.GET_DEPLOY_STATUSES, { catalogId })
+        ) as any;
+        deployStatuses = deployResponse || [];
+      } catch (error) {
+        this.logger.warn(`Failed to get deploy statuses from deploy service: ${error.message}`);
+      }
 
       // Count devices with different status
       const downloadedCount = new Set(

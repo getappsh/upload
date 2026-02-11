@@ -41,6 +41,16 @@ import { PermissionsModule } from '@app/common/permissions/permissions.module';
       type: MicroserviceType.DEVICE,
       id: 'upload'
     }),
+    MicroserviceModule.register({
+      name: MicroserviceName.DELIVERY_SERVICE,
+      type: MicroserviceType.DELIVERY,
+      id: 'upload'
+    }),
+    MicroserviceModule.register({
+      name: MicroserviceName.DEPLOY_SERVICE,
+      type: MicroserviceType.DEPLOY,
+      id: 'upload'
+    }),
     ApmModule,
     DatabaseModule,
     RuleModule,
