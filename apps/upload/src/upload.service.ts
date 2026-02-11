@@ -1,6 +1,6 @@
 import { S3Service } from '@app/common/AWS/s3.service';
 import { ProjectEntity, UploadVersionEntity, UploadStatus, AssetTypeEnum, MemberProjectEntity} from '@app/common/database/entities';
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -15,7 +15,7 @@ import { firstValueFrom } from 'rxjs';
 
 
 @Injectable()
-export class UploadService implements ProjectAccessService {
+export class UploadService implements ProjectAccessService, OnModuleInit {
 
   private readonly logger = new Logger(UploadService.name);
 
@@ -28,6 +28,17 @@ export class UploadService implements ProjectAccessService {
     @Inject(MicroserviceName.PROJECT_MANAGEMENT_SERVICE) private readonly projectManagementClient: MicroserviceClient,
     
   ) { }
+
+  async onModuleInit() {
+    this.projectManagementClient.subscribeToResponseOf([
+      ProjectManagementTopics.GET_PROJECT_FROM_TOKEN,
+      ProjectManagementTopics.GET_MEMBER_IN_PROJECT,
+      ProjectManagementTopics.GET_USER_PROJECT_IDS,
+      ProjectManagementTopics.GET_PROJECT_IDS_BY_NAMES,
+    ]);
+
+    await this.projectManagementClient.connect();
+  }
 
 
   private async moveImageToS3(artifactDto: any, uploadVersion: UploadVersionEntity) {
