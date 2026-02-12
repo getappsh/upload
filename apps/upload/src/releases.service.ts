@@ -1082,7 +1082,7 @@ export class ReleaseService {
       // Calculate deployment percentage
       let deploymentPercentage = 0;
       if (activeDeliveryCount > 0) {
-        deploymentPercentage = (installedCount / activeDeliveryCount) * 100;
+        deploymentPercentage = (installedCount / (activeDeliveryCount + installedCount)) * 100;
       }
 
       const report: DeploymentReportDto = {
