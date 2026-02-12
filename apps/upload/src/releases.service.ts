@@ -1026,9 +1026,11 @@ export class ReleaseService {
               deviceId: deviceId,
               deviceName: d.device?.name || d.device?.Name,
               deliveryStatus: status,
+              downloadTime: d.downloadDone,
             });
           } else {
             deviceMap.get(deviceId).deliveryStatus = status;
+            deviceMap.get(deviceId).downloadTime = d.downloadDone;
           }
         }
       });
@@ -1046,9 +1048,11 @@ export class ReleaseService {
               deviceId: deviceId,
               deviceName: d.device?.name || d.device?.Name,
               deployStatus: status,
+              installationTime: d.deployDone,
             });
           } else {
             deviceMap.get(deviceId).deployStatus = status;
+            deviceMap.get(deviceId).installationTime = d.deployDone;
             // Update device name if not already set
             if (!deviceMap.get(deviceId).deviceName && (d.device?.name || d.device?.Name)) {
               deviceMap.get(deviceId).deviceName = d.device?.name || d.device?.Name;
