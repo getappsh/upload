@@ -1,5 +1,5 @@
 import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum, RuleEntity, RuleReleaseEntity, DeliveryStatusEntity, DeployStatusEntity, DeliveryStatusEnum, DeployStatusEnum } from "@app/common/database/entities";
-import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto, ReleaseEventType, ReleaseEventEnum, ReleaseChangedEventDto, GetReleaseArtifactResDto, ReleaseArtifactNameParams, UpdateFilePropertiesDto, DeploymentReportDto } from "@app/common/dto/upload";
+import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto, ReleaseEventType, ReleaseEventEnum, ReleaseChangedEventDto, GetReleaseArtifactResDto, ReleaseArtifactNameParams, UpdateFilePropertiesDto, DeploymentReportDto, DeviceDeploymentDetailDto } from "@app/common/dto/upload";
 import { AppError, ErrorCode } from "@app/common/dto/error";
 import { Inject, Injectable, Logger, NotFoundException, ConflictException, BadRequestException, ForbiddenException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -1010,6 +1010,56 @@ export class ReleaseService {
         this.logger.warn(`Failed to get deploy statuses from deploy service: ${error.message}`);
       }
 
+      // Build a map of devices with their statuses
+      const deviceMap = new Map<string, DeviceDeploymentDetailDto>();
+
+      // Process delivery statuses
+      deliveryStatuses.forEach((d) => {
+        const deviceId = d.device?.ID || d.device;
+        if (!deviceId) return;
+
+        const status = d.deliveryStatus;
+        // Include devices that are not cancelled or deleted
+        if (status !== DeliveryStatusEnum.CANCELLED && status !== DeliveryStatusEnum.DELETED) {
+          if (!deviceMap.has(deviceId)) {
+            deviceMap.set(deviceId, {
+              deviceId: deviceId,
+              deviceName: d.device?.name || d.device?.Name,
+              deliveryStatus: status,
+            });
+          } else {
+            deviceMap.get(deviceId).deliveryStatus = status;
+          }
+        }
+      });
+
+      // Process deploy statuses
+      deployStatuses.forEach((d) => {
+        const deviceId = d.device?.ID || d.device;
+        if (!deviceId) return;
+
+        const status = d.deployStatus;
+        // Include devices that are not cancelled or uninstalled
+        if (status !== DeployStatusEnum.CANCELLED && status !== DeployStatusEnum.UNINSTALL) {
+          if (!deviceMap.has(deviceId)) {
+            deviceMap.set(deviceId, {
+              deviceId: deviceId,
+              deviceName: d.device?.name || d.device?.Name,
+              deployStatus: status,
+            });
+          } else {
+            deviceMap.get(deviceId).deployStatus = status;
+            // Update device name if not already set
+            if (!deviceMap.get(deviceId).deviceName && (d.device?.name || d.device?.Name)) {
+              deviceMap.get(deviceId).deviceName = d.device?.name || d.device?.Name;
+            }
+          }
+        }
+      });
+
+      // Convert map to array
+      const devices = Array.from(deviceMap.values());
+
       // Count devices with different status
       const downloadedCount = new Set(
         deliveryStatuses
@@ -1023,49 +1073,7 @@ export class ReleaseService {
           .map((d) => d.device?.ID || d.device)
       ).size;
 
-      // Active delivery includes:
-      // 1. Devices currently downloading (deliveryStatus != DONE and != CANCELLED and != DELETED)
-      // 2. Devices waiting to install but haven't downloaded yet (deployStatus != DONE)
-      const activeDeliveryIds = new Set<any>();
-      
-      // Add devices that are in the process of downloading or have finished downloading
-      deliveryStatuses.forEach((d) => {
-        const status = d.deliveryStatus;
-        if (status !== DeliveryStatusEnum.CANCELLED && status !== DeliveryStatusEnum.DELETED) {
-          activeDeliveryIds.add(d.device?.ID || d.device);
-        }
-      });
-
-      // Add devices that are in deployment process but not yet installed
-      deployStatuses.forEach((d) => {
-        const status = d.deployStatus;
-        if (status !== DeployStatusEnum.CANCELLED && status !== DeployStatusEnum.UNINSTALL) {
-          activeDeliveryIds.add(d.device?.ID || d.device);
-        }
-      });
-
-      const activeDeliveryCount = activeDeliveryIds.size;
-
-      // Get devices offered to the release based on device type
-      // This queries the offering service for devices that match the release's device type offerings
-      let offeredDevicesCount = 0;
-      try {
-        const offeringResult = await lastValueFrom(
-          this.offeringClient.send(OfferingTopics.GET_OFFERING_FOR_ALL_PROJECTS, {
-            catalogId: catalogId,
-          })
-        ) as any;
-
-        if (offeringResult && offeringResult.devices) {
-          offeredDevicesCount = new Set(offeringResult.devices.map((d: any) => d.id || d)).size;
-        }
-      } catch (error) {
-        this.logger.warn(
-          `Could not get offering info for catalogId: ${catalogId}. Error: ${error.message}`
-        );
-        // If we can't get offering data, use all devices in active delivery as fallback
-        offeredDevicesCount = activeDeliveryCount;
-      }
+      const activeDeliveryCount = deviceMap.size;
 
       // Calculate deployment percentage
       let deploymentPercentage = 0;
@@ -1080,8 +1088,8 @@ export class ReleaseService {
         downloadedCount,
         installedCount,
         activeDeliveryCount,
-        offeredDevicesCount,
         deploymentPercentage: Math.round(deploymentPercentage * 100) / 100, // Round to 2 decimal places
+        devices,
       };
 
       this.logger.log(`Deployment report generated: ${JSON.stringify(report)}`);
