@@ -162,7 +162,6 @@ export const ProjectManagementTopics = {
     // Deployment Report
     GET_SYSTEM_WIDE_DEPLOYMENT_REPORT: `getapp-project-management.get-system-wide-deployment-report${region}`,
     GET_PROJECT_DEPLOYMENT_REPORT: `getapp-project-management.get-project-deployment-report${region}`,
-    GET_MULTI_PROJECT_DEPLOYMENT_REPORT: `getapp-project-management.get-multi-project-deployment-report${region}`,
 
     CHECK_HEALTH: `getapp-project-management.check-health${region}`
 } as const
