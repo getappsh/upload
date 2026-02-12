@@ -13,6 +13,12 @@ export class DeviceDeploymentDetailDto {
 
   @ApiProperty({ description: 'Deploy/Installation status (e.g., DONE, PENDING, IN_PROGRESS)', type: String, required: false })
   deployStatus?: string;
+
+  @ApiProperty({ description: 'Download completion timestamp', type: Date, required: false })
+  downloadTime?: Date;
+
+  @ApiProperty({ description: 'Installation completion timestamp', type: Date, required: false })
+  installationTime?: Date;
 }
 
 export class ReleaseReportDto {
