@@ -1,7 +1,7 @@
 import { DatabaseModule, UploadJwtConfigService } from '@app/common';
 import { RuleModule } from '@app/common/rules';
 import { S3Service } from '@app/common/AWS/s3.service';
-import { FileUploadEntity, RegulationEntity, RegulationStatusEntity, ReleaseArtifactEntity, ReleaseEntity, UploadVersionEntity, RuleFieldEntity, RuleEntity, RuleReleaseEntity, RuleDeviceTypeEntity, RuleDeviceEntity, RuleOsEntity, DeliveryStatusEntity, DeployStatusEntity} from '@app/common/database/entities';
+import { FileUploadEntity, RegulationEntity, RegulationStatusEntity, ReleaseArtifactEntity, ReleaseEntity, UploadVersionEntity, RuleFieldEntity, RuleEntity, RuleReleaseEntity, RuleDeviceTypeEntity, RuleDeviceEntity, RuleOsEntity, DeliveryStatusEntity, DeployStatusEntity } from '@app/common/database/entities';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -71,8 +71,8 @@ import { PermissionsModule } from '@app/common/permissions/permissions.module';
        RuleDeviceTypeEntity,
        RuleDeviceEntity,
        RuleOsEntity,
-       DeliveryStatusEntity,
-       DeployStatusEntity]),
+      DeliveryStatusEntity,
+      DeployStatusEntity]),
     SafeCronModule,
     MicroserviceModule.register({
       name: MicroserviceName.PROJECT_MANAGEMENT_SERVICE,

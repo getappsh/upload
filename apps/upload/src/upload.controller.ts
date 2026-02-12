@@ -1,10 +1,10 @@
-import { UploadTopics, UploadTopicsEmit } from '@app/common/microservice-client/topics';
+import { UploadTopics, UploadTopicsEmit, ProjectManagementTopicsEmit } from '@app/common/microservice-client/topics';
 import { RoleInProject, UploadVersionEntity } from '@app/common/database/entities';
-import { Controller, Logger, UseInterceptors } from '@nestjs/common';
+import { Controller, Logger, UseInterceptors, Inject } from '@nestjs/common';
 import { EventPattern, MessagePattern, RpcException } from '@nestjs/microservices';
 import { UploadService } from './upload.service';
-import { CreateFileUploadUrlDto, ReleaseArtifactNameParams, ReleaseArtifactParams, ReleaseParams, SetReleaseArtifactDto, SetReleaseDto, UpdateFileUploadDto, UpdateUploadStatusDto, UpdateFilePropertiesDto, DeploymentReportDto } from '@app/common/dto/upload';
-import { RpcPayload, UserContextInterceptor } from '@app/common/microservice-client';
+import { CreateFileUploadUrlDto, ReleaseArtifactNameParams, ReleaseArtifactParams, ReleaseParams, SetReleaseArtifactDto, SetReleaseDto, UpdateFileUploadDto, UpdateUploadStatusDto, UpdateFilePropertiesDto } from '@app/common/dto/upload';
+import { RpcPayload, UserContextInterceptor, MicroserviceClient, MicroserviceName } from '@app/common/microservice-client';
 import * as fs from 'fs';
 import { FileUploadService } from './file-upload.service';
 import { ReleaseService } from './releases.service';
@@ -27,6 +27,7 @@ export class UploadController {
     private readonly releasesService: ReleaseService,
     private readonly regulationService: RegulationStatusService,
     private readonly policyService: PolicyService,
+    @Inject(MicroserviceName.PROJECT_MANAGEMENT_SERVICE) private readonly projectManagementClient: MicroserviceClient,
 
   ) {}
   
@@ -193,10 +194,24 @@ export class UploadController {
 
   @ValidateProjectAnyAccess()
   @MessagePattern(UploadTopics.GET_DEPLOYMENT_REPORT)
-  async getDeploymentReport(@RpcPayload() params: ReleaseParams) {
+  async getDeploymentReport(
+    @RpcPayload() params: ReleaseParams & { emitPmEvent?: boolean; requestSource?: string; requesterEmail?: string },
+    @AuthUser('email') userEmail: string
+  ) {
     this.logger.log(`Getting deployment report for project: ${params.projectIdentifier}, version: ${params.version}`);
+    if (params.emitPmEvent === true && params.requestSource !== 'system-wide') {
+      const requesterEmail = params.requesterEmail || userEmail;
+      this.projectManagementClient.emit(ProjectManagementTopicsEmit.DEPLOYMENT_REPORT_REQUESTED, {
+        projectIdentifier: params.projectIdentifier,
+        projectId: params.projectId,
+        version: params.version,
+        requesterEmail,
+        requestedAt: new Date().toISOString(),
+      });
+    }
     return this.releasesService.getDeploymentReport(params);
   }
+
 
   private readImageVersion(){
     let version = 'unknown'
