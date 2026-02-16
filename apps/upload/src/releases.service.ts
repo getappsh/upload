@@ -838,8 +838,24 @@ export class ReleaseService {
   ): Promise<void> {
     this.logger.log(`Starting background import of ${artifacts.length} artifacts for release ${release.catalogId}`);
     
+    // Filter out artifacts without downloadUrl
+    const validArtifacts = artifacts.filter(artifact => {
+      if (!artifact.downloadUrl) {
+        this.logger.warn(`Skipping artifact ${artifact.name} - no downloadUrl provided`);
+        return false;
+      }
+      return true;
+    });
+
+    if (validArtifacts.length === 0) {
+      this.logger.log(`No valid artifacts with downloadUrl to import for release ${release.catalogId}`);
+      return;
+    }
+
+    this.logger.log(`Importing ${validArtifacts.length} out of ${artifacts.length} artifacts with valid downloadUrls`);
+    
     const results = await Promise.all(
-      artifacts.map(async (artifact) => {
+      validArtifacts.map(async (artifact) => {
         try {
           await this.importArtifact(release, artifact, userId, bucketName);
           return { name: artifact.name, success: true };
