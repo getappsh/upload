@@ -936,6 +936,9 @@ export class ReleaseService {
     artifactEntity.fileUpload = savedFileUpload;
     //todo: get this property from dto
     artifactEntity.isInstallationFile = true;
+    artifactEntity.isExecutable = artifact.isExecutable;
+    artifactEntity.arguments = artifact.arguments;
+    artifactEntity.metadata = artifact.metadata || {};
     await this.artifactRepo.save(artifactEntity);
 
     try {
