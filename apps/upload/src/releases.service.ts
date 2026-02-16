@@ -278,7 +278,7 @@ export class ReleaseService {
     }
 
     for (const artifact of release.artifacts) {
-      await this.deleteReleaseArtifact({ artifactId: artifact.id, ...params })
+      await this.deleteReleaseArtifact({ artifactId: artifact.id, ...params }, true)
         .catch(err => this.logger.error(`Error deleting release artifact: ${artifact.id}, error: ${err}`));
     }
 
@@ -373,7 +373,7 @@ export class ReleaseService {
     return res;
   }
 
-  async deleteReleaseArtifact(params: ReleaseArtifactParams): Promise<string> {
+    async deleteReleaseArtifact(params: ReleaseArtifactParams, skipPermissionCheck: boolean = false): Promise<string> {
     this.logger.log(`Deleting release artifact of release: ${params.version}, artifact Id: ${params.artifactId}`);
     const artifact = await this.artifactRepo.findOne({
       select: { fileUpload: { id: true }, release: { isImported: true, status: true } },
@@ -385,8 +385,10 @@ export class ReleaseService {
       throw new NotFoundException(`Release artifact not found for project: ${params.projectId} release: ${params.version}, artifact Id: ${params.artifactId}`);
     }
 
-    // Check permission for readonly imported releases
-    this.checkReadonlyReleasePermission(artifact.release);
+    // Check permission for readonly imported releases (unless skipped for release deletion)
+    if (!skipPermissionCheck) {
+      this.checkReadonlyReleasePermission(artifact.release);
+    }
 
     if (artifact.type == ArtifactTypeEnum.FILE) {
       await this.fileUploadService.removeFile(artifact.fileUpload.id);
