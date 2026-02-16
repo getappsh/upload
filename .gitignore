@@ -43,3 +43,4 @@ manifest.json
 ._.DS_Store
 ._.env
 keys/*
+libs/common/src/database/entities/._index.ts
