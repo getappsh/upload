@@ -1077,12 +1077,20 @@ export class ReleaseService {
           .map((d) => d.device?.ID || d.device)
       ).size;
 
-      const activeDeliveryCount = deviceMap.size;
+
+      // 'total' is the number of devices in the map (all with any delivery/deploy status)
+      const total = deviceMap.size;
+
+      // 'pending' is the number of devices that have not downloaded or are still downloading
+      // We consider devices as pending if their deliveryStatus is not DONE (or is PENDING/IN_PROGRESS)
+      const pending = Array.from(deviceMap.values()).filter(
+        d => d.deliveryStatus !== DeliveryStatusEnum.DONE
+      ).length;
 
       // Calculate deployment percentage
       let deploymentPercentage = 0;
-      if (activeDeliveryCount > 0) {
-        deploymentPercentage = (installedCount / (activeDeliveryCount)) * 100;
+      if (total > 0) {
+        deploymentPercentage = (installedCount / total) * 100;
       }
 
       const report: DeploymentReportDto = {
@@ -1091,7 +1099,8 @@ export class ReleaseService {
         version: params.version,
         downloadedCount,
         installedCount,
-        activeDeliveryCount,
+        total,
+        pending,
         deploymentPercentage: Math.round(deploymentPercentage * 100) / 100, // Round to 2 decimal places
         devices,
       };

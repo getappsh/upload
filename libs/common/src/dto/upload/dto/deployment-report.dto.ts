@@ -20,8 +20,11 @@ export class ReleaseReportDto {
   @ApiProperty({ description: 'Number of devices with the release installed', type: Number })
   installedCount: number;
 
-  @ApiProperty({ description: 'Number of devices with ongoing delivery process (includes devices waiting for download and mid-deployment)', type: Number })
-  activeDeliveryCount: number;
+  @ApiProperty({ description: 'Total number of devices with ongoing delivery process (includes devices waiting for download and mid-deployment)', type: Number })
+  total: number;
+
+  @ApiProperty({ description: 'Number of devices that are pending (not downloaded or still downloading)', type: Number })
+  pending: number;
 
   @ApiProperty({ description: 'Number of devices the release is offered to based on device type', type: Number })
   offeredDevicesCount: number;
@@ -66,8 +69,11 @@ export class DeploymentReportDto {
   @ApiProperty({ description: 'Number of devices with the release installed', type: Number })
   installedCount: number;
 
-  @ApiProperty({ description: 'Number of devices with ongoing delivery process (includes devices waiting for download and mid-deployment)', type: Number })
-  activeDeliveryCount: number;
+  @ApiProperty({ description: 'Total number of devices with ongoing delivery process (includes devices waiting for download and mid-deployment)', type: Number })
+  total: number;
+
+  @ApiProperty({ description: 'Number of devices that are pending (not downloaded or still downloading)', type: Number })
+  pending: number;
 
   @ApiProperty({ description: 'Deployment percentage calculated as (installedCount / activeDeliveryCount) * 100', type: Number })
   deploymentPercentage: number;
