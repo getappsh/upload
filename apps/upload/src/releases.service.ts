@@ -840,13 +840,13 @@ export class ReleaseService {
   ): Promise<void> {
     this.logger.log(`Starting background import of ${artifacts.length} artifacts for release ${release.catalogId}`);
     
-    await Promise.all(
+    const results = await Promise.all(
       artifacts.map(async (artifact) => {
         try {
           await this.importArtifact(release, artifact, userId, bucketName);
+          return { name: artifact.name, success: true };
         } catch (error) {
           this.logger.error(`Error importing artifact ${artifact.name} in background: ${error.message}`);
-          
           // Update file_upload to save the error message 
           const projectId = typeof release.project === 'object' && 'id' in release.project ? release.project.id : release.project;
           const dtoForKey = new CreateFileUploadUrlDto();
@@ -864,10 +864,28 @@ export class ReleaseService {
             this.logger.error(`Failed to update file_upload error: ${err.message}`);
             throw new BadRequestException(`Failed to update file_upload status: ${err.message}`);
           });
+          return { name: artifact.name, success: false };
         }
       })
     );
-    
+
+    // After all uploads, check if all succeeded
+    const allSucceeded = results.every(r => r.success);
+    if (allSucceeded && artifacts.length > 0) {
+      // Set release status to RELEASED
+      await this.releaseRepo.createQueryBuilder()
+        .update()
+        .set({
+          status: ReleaseStatusEnum.RELEASED,
+          releasedAt: () => `CASE WHEN released_at IS NULL THEN NOW() ELSE released_at END`
+        })
+        .where("catalog_id = :catalogId", { catalogId: release.catalogId })
+        .execute();
+      const projectId = typeof release.project === 'object' && 'id' in release.project ? release.project.id : release.project;
+      await this.updateLatestForProject(projectId);
+      await this.refreshReleaseState({ projectId: projectId, version: release.version, projectIdentifier: projectId });
+      this.logger.log(`All artifacts imported successfully. Release ${release.catalogId} set to RELEASED.`);
+    }
     this.logger.log(`Completed background import for release ${release.catalogId}`);
   }
 
