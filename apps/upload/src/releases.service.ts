@@ -923,22 +923,21 @@ export class ReleaseService {
     //todo: get this property from dto
     artifactEntity.isInstallationFile = true;
     await this.artifactRepo.save(artifactEntity);
-    if(artifact.downloadUrl){
-        try {
-        // Use fileUploadService to handle the entire download and upload process
-        await this.fileUploadService.uploadFileFromUrl(
-          savedFileUpload,
-          artifact.downloadUrl,
-          artifact.sha256
-        );
+    try {
+    // Use fileUploadService to handle the entire download and upload process
+    await this.fileUploadService.uploadFileFromUrl(
+      savedFileUpload,
+      artifact.downloadUrl,
+      artifact.sha256
+    );
 
-        this.logger.log(`Successfully imported artifact: ${artifact.name}`);
+    this.logger.log(`Successfully imported artifact: ${artifact.name}`);
 
-      } catch (error) {
-        this.logger.error(`Failed to import artifact ${artifact.name}: ${error.message}`);
-        throw error;
-      }
-    }
+  } catch (error) {
+    this.logger.error(`Failed to import artifact ${artifact.name}: ${error.message}`);
+    throw error;
+  }
+    
     
   }
 
