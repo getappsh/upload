@@ -276,7 +276,7 @@ export class ReleaseService {
     }
 
     for (const artifact of release.artifacts) {
-      await this.deleteReleaseArtifact({ artifactId: artifact.id, ...params })
+      await this.deleteReleaseArtifact({ artifactId: artifact.id, ...params }, true)
         .catch(err => this.logger.error(`Error deleting release artifact: ${artifact.id}, error: ${err}`));
     }
 
@@ -371,7 +371,7 @@ export class ReleaseService {
     return res;
   }
 
-  async deleteReleaseArtifact(params: ReleaseArtifactParams): Promise<string> {
+    async deleteReleaseArtifact(params: ReleaseArtifactParams, skipPermissionCheck: boolean = false): Promise<string> {
     this.logger.log(`Deleting release artifact of release: ${params.version}, artifact Id: ${params.artifactId}`);
     const artifact = await this.artifactRepo.findOne({
       select: { fileUpload: { id: true }, release: { isImported: true, status: true } },
@@ -383,8 +383,10 @@ export class ReleaseService {
       throw new NotFoundException(`Release artifact not found for project: ${params.projectId} release: ${params.version}, artifact Id: ${params.artifactId}`);
     }
 
-    // Check permission for readonly imported releases
-    this.checkReadonlyReleasePermission(artifact.release);
+    // Check permission for readonly imported releases (unless skipped for release deletion)
+    if (!skipPermissionCheck) {
+      this.checkReadonlyReleasePermission(artifact.release);
+    }
 
     if (artifact.type == ArtifactTypeEnum.FILE) {
       await this.fileUploadService.removeFile(artifact.fileUpload.id);
@@ -836,13 +838,29 @@ export class ReleaseService {
   ): Promise<void> {
     this.logger.log(`Starting background import of ${artifacts.length} artifacts for release ${release.catalogId}`);
     
-    await Promise.all(
-      artifacts.map(async (artifact) => {
+    // Filter out artifacts without downloadUrl
+    const validArtifacts = artifacts.filter(artifact => {
+      if (!artifact.downloadUrl) {
+        this.logger.warn(`Skipping artifact ${artifact.name} - no downloadUrl provided`);
+        return false;
+      }
+      return true;
+    });
+
+    if (validArtifacts.length === 0) {
+      this.logger.log(`No valid artifacts with downloadUrl to import for release ${release.catalogId}`);
+      return;
+    }
+
+    this.logger.log(`Importing ${validArtifacts.length} out of ${artifacts.length} artifacts with valid downloadUrls`);
+    
+    const results = await Promise.all(
+      validArtifacts.map(async (artifact) => {
         try {
           await this.importArtifact(release, artifact, userId, bucketName);
+          return { name: artifact.name, success: true };
         } catch (error) {
           this.logger.error(`Error importing artifact ${artifact.name} in background: ${error.message}`);
-          
           // Update file_upload to save the error message 
           const projectId = typeof release.project === 'object' && 'id' in release.project ? release.project.id : release.project;
           const dtoForKey = new CreateFileUploadUrlDto();
@@ -860,10 +878,28 @@ export class ReleaseService {
             this.logger.error(`Failed to update file_upload error: ${err.message}`);
             throw new BadRequestException(`Failed to update file_upload status: ${err.message}`);
           });
+          return { name: artifact.name, success: false };
         }
       })
     );
-    
+
+    // After all uploads, check if all succeeded
+    const allSucceeded = results.every(r => r.success);
+    if (allSucceeded && artifacts.length > 0) {
+      // Set release status to RELEASED
+      await this.releaseRepo.createQueryBuilder()
+        .update()
+        .set({
+          status: ReleaseStatusEnum.RELEASED,
+          releasedAt: () => `CASE WHEN released_at IS NULL THEN NOW() ELSE released_at END`
+        })
+        .where("catalog_id = :catalogId", { catalogId: release.catalogId })
+        .execute();
+      const projectId = typeof release.project === 'object' && 'id' in release.project ? release.project.id : release.project;
+      await this.updateLatestForProject(projectId);
+      await this.refreshReleaseState({ projectId: projectId, version: release.version, projectIdentifier: projectId });
+      this.logger.log(`All artifacts imported successfully. Release ${release.catalogId} set to RELEASED.`);
+    }
     this.logger.log(`Completed background import for release ${release.catalogId}`);
   }
 
@@ -900,6 +936,9 @@ export class ReleaseService {
     artifactEntity.fileUpload = savedFileUpload;
     //todo: get this property from dto
     artifactEntity.isInstallationFile = true;
+    artifactEntity.isExecutable = artifact.isExecutable;
+    artifactEntity.arguments = artifact.arguments;
+    artifactEntity.metadata = artifact.metadata || {};
     await this.artifactRepo.save(artifactEntity);
 
     try {
