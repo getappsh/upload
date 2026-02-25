@@ -1,38 +1,6 @@
 import { ApiProperty } from "@nestjs/swagger";
 import { IsArray, IsBoolean, IsNotEmpty, IsOptional, ArrayMinSize } from "class-validator";
 
-export class ReleaseReportDto {
-  @ApiProperty({ description: 'Project ID', type: Number })
-  projectId: number;
-
-  @ApiProperty({ description: 'Project name', type: String })
-  projectName: string;
-
-  @ApiProperty({ description: 'Release name', type: String })
-  releaseName: string;
-
-  @ApiProperty({ description: 'Release version', type: String })
-  version: string;
-
-  @ApiProperty({ description: 'Number of devices that have downloaded the release', type: Number })
-  downloadedCount: number;
-
-  @ApiProperty({ description: 'Number of devices with the release installed', type: Number })
-  installedCount: number;
-
-  @ApiProperty({ description: 'Total number of devices with ongoing delivery process (includes devices waiting for download and mid-deployment)', type: Number })
-  total: number;
-
-  @ApiProperty({ description: 'Number of devices that are pending (not downloaded or still downloading)', type: Number })
-  pending: number;
-
-  @ApiProperty({ description: 'Number of devices the release is offered to based on device type', type: Number })
-  offeredDevicesCount: number;
-
-  @ApiProperty({ description: 'Deployment percentage calculated as (installedCount / activeDeliveryCount) * 100', type: Number })
-  deploymentPercentage: number;
-}
-
 export class DeviceDeploymentDetailDto {
   @ApiProperty({ description: 'Device ID', type: String })
   deviceId: string;
