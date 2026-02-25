@@ -1082,6 +1082,29 @@ export class ReleaseService {
         }
       });
 
+      // Process push offerings - add devices that haven't downloaded yet
+      let pushOfferingDevices = [];
+      try {
+        pushOfferingDevices = await lastValueFrom(
+          this.offeringClient.send(OfferingTopics.GET_PUSH_OFFERING_DEVICES, catalogId )
+        ) as any[] || [];
+      } catch (error) {
+        this.logger.warn(`Failed to get push offering devices from offering service: ${error.message}`);
+      }
+
+      pushOfferingDevices.forEach((po) => {
+        const deviceId = po.deviceId;
+        if (!deviceId) return;
+        // Only add if the device hasn't already downloaded the release
+        if (!deviceMap.has(deviceId)) {
+          deviceMap.set(deviceId, {
+            deviceId,
+            deviceName: po.deviceName,
+          });
+        }
+        // If device exists but hasn't finished downloading, leave it as-is (already pending)
+      });
+
       // Convert map to array
       const devices = Array.from(deviceMap.values());
 
