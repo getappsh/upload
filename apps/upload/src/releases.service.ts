@@ -1,7 +1,7 @@
 import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum, RuleEntity, RuleReleaseEntity, DeliveryStatusEntity, DeployStatusEntity, DeliveryStatusEnum, DeployStatusEnum } from "@app/common/database/entities";
 import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto, ReleaseEventType, ReleaseEventEnum, ReleaseChangedEventDto, GetReleaseArtifactResDto, ReleaseArtifactNameParams, UpdateFilePropertiesDto, DeploymentReportDto, DeviceDeploymentDetailDto } from "@app/common/dto/upload";
 import { AppError, ErrorCode } from "@app/common/dto/error";
-import { Inject, Injectable, Logger, NotFoundException, ConflictException, BadRequestException, ForbiddenException } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException, ConflictException, BadRequestException, ForbiddenException, OnModuleInit } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Not, Repository } from "typeorm";
 import { FileUploadService } from "./file-upload.service";
@@ -19,7 +19,7 @@ import { ApiRole, PermissionsService } from "@app/common";
 
 
 @Injectable()
-export class ReleaseService {
+export class ReleaseService implements OnModuleInit {
   private readonly logger = new Logger(ReleaseService.name);
   private readonly DEFAULT_RULE_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -43,6 +43,20 @@ export class ReleaseService {
 
     this.fileUploadService.onFileCreate(file => this.onFileCreate(file));
     this.fileUploadService.onFileDelete(file => this.onFileDelete(file));
+  }
+
+  async onModuleInit() {
+    this.deliveryClient.subscribeToResponseOf([DeliveryTopics.GET_DELIVERY_STATUSES]);
+    this.deployClient.subscribeToResponseOf([DeployTopics.GET_DEPLOY_STATUSES]);
+    this.offeringClient.subscribeToResponseOf([OfferingTopics.GET_PUSH_OFFERING_DEVICES]);
+
+    await Promise.all([
+      this.deliveryClient.connect(),
+      this.deployClient.connect(),
+      this.offeringClient.connect(),
+    ]);
+
+    this.logger.log('ReleaseService initialized and connected to microservices');
   }
 
   /**
