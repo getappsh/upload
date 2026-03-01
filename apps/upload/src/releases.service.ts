@@ -1,7 +1,7 @@
-import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum, RuleEntity, RuleReleaseEntity } from "@app/common/database/entities";
-import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto, ReleaseEventType, ReleaseEventEnum, ReleaseChangedEventDto, GetReleaseArtifactResDto, ReleaseArtifactNameParams, UpdateFilePropertiesDto } from "@app/common/dto/upload";
+import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum, RuleEntity, RuleReleaseEntity, DeliveryStatusEntity, DeployStatusEntity, DeliveryStatusEnum, DeployStatusEnum } from "@app/common/database/entities";
+import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto, ReleaseEventType, ReleaseEventEnum, ReleaseChangedEventDto, GetReleaseArtifactResDto, ReleaseArtifactNameParams, UpdateFilePropertiesDto, DeploymentReportDto, DeviceDeploymentDetailDto } from "@app/common/dto/upload";
 import { AppError, ErrorCode } from "@app/common/dto/error";
-import { Inject, Injectable, Logger, NotFoundException, ConflictException, BadRequestException, ForbiddenException } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException, ConflictException, BadRequestException, ForbiddenException, OnModuleInit } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Not, Repository } from "typeorm";
 import { FileUploadService } from "./file-upload.service";
@@ -9,7 +9,7 @@ import { UpsertOptions } from "typeorm/repository/UpsertOptions";
 import { RegulationStatusService } from "./regulation-status.service";
 import { MinimalReleaseDto, ProjectReleasesChangedEvent, RegulationChangedEvent, RegulationChangedEventType, RegulationParams } from "@app/common/dto/project-management";
 import { MicroserviceClient, MicroserviceName } from "@app/common/microservice-client";
-import { OfferingTopicsEmit, ProjectManagementTopicsEmit } from "@app/common/microservice-client/topics";
+import { OfferingTopicsEmit, ProjectManagementTopicsEmit, OfferingTopics, DeliveryTopics, DeployTopics } from "@app/common/microservice-client/topics";
 import { lastValueFrom } from "rxjs";
 import { ExportReleaseDto, ExportArtifactDto, ExportDockerImageDto, ExportDependencyDto, ImportReleaseDto, ImportReleaseResponseDto, ArtifactWarningDto } from "@app/common/dto/delivery";
 import { MinioClientService } from "@app/common/AWS/minio-client.service";
@@ -19,7 +19,7 @@ import { ApiRole, PermissionsService } from "@app/common";
 
 
 @Injectable()
-export class ReleaseService {
+export class ReleaseService implements OnModuleInit {
   private readonly logger = new Logger(ReleaseService.name);
   private readonly DEFAULT_RULE_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -30,6 +30,8 @@ export class ReleaseService {
     @InjectRepository(RegulationEntity) private readonly regulationRepo: Repository<RegulationEntity>,
     @InjectRepository(RuleEntity) private readonly ruleRepo: Repository<RuleEntity>,
     @InjectRepository(RuleReleaseEntity) private readonly ruleReleaseRepo: Repository<RuleReleaseEntity>,
+    @Inject(MicroserviceName.DELIVERY_SERVICE) private readonly deliveryClient: MicroserviceClient,
+    @Inject(MicroserviceName.DEPLOY_SERVICE) private readonly deployClient: MicroserviceClient,
     @Inject(MicroserviceName.OFFERING_SERVICE) private readonly offeringClient: MicroserviceClient,
     private readonly fileUploadService: FileUploadService,
     private readonly regulationService: RegulationStatusService,
@@ -41,6 +43,20 @@ export class ReleaseService {
 
     this.fileUploadService.onFileCreate(file => this.onFileCreate(file));
     this.fileUploadService.onFileDelete(file => this.onFileDelete(file));
+  }
+
+  async onModuleInit() {
+    this.deliveryClient.subscribeToResponseOf([DeliveryTopics.GET_DELIVERY_STATUSES]);
+    this.deployClient.subscribeToResponseOf([DeployTopics.GET_DEPLOY_STATUSES]);
+    this.offeringClient.subscribeToResponseOf([OfferingTopics.GET_PUSH_OFFERING_DEVICES]);
+
+    await Promise.all([
+      this.deliveryClient.connect(),
+      this.deployClient.connect(),
+      this.offeringClient.connect(),
+    ]);
+
+    this.logger.log('ReleaseService initialized and connected to microservices');
   }
 
   /**
@@ -940,21 +956,22 @@ export class ReleaseService {
     artifactEntity.arguments = artifact.arguments;
     artifactEntity.metadata = artifact.metadata || {};
     await this.artifactRepo.save(artifactEntity);
-
     try {
-      // Use fileUploadService to handle the entire download and upload process
-      await this.fileUploadService.uploadFileFromUrl(
-        savedFileUpload,
-        artifact.downloadUrl,
-        artifact.sha256
-      );
+    // Use fileUploadService to handle the entire download and upload process
+    await this.fileUploadService.uploadFileFromUrl(
+      savedFileUpload,
+      artifact.downloadUrl,
+      artifact.sha256
+    );
 
-      this.logger.log(`Successfully imported artifact: ${artifact.name}`);
+    this.logger.log(`Successfully imported artifact: ${artifact.name}`);
 
-    } catch (error) {
-      this.logger.error(`Failed to import artifact ${artifact.name}: ${error.message}`);
-      throw error;
-    }
+  } catch (error) {
+    this.logger.error(`Failed to import artifact ${artifact.name}: ${error.message}`);
+    throw error;
+  }
+    
+    
   }
 
   /**
@@ -1006,6 +1023,170 @@ export class ReleaseService {
       this.logger.debug(`Updated totalSize for project: ${projectId}, version: ${version}`);
     } catch (error) {
       this.logger.error(`Error updating totalSize for project: ${projectId}, version: ${version}: ${error.message}`);
+    }
+  }
+
+  async getDeploymentReport(params: ReleaseParams): Promise<DeploymentReportDto> {
+    try {
+      this.logger.log(`Generating deployment report for project: ${params.projectId}, version: ${params.version}`);
+
+      const release = await this.releaseRepo.findOneBy({
+        project: { id: params.projectId },
+        version: params.version,
+      });
+
+      if (!release) {
+        throw new NotFoundException(`Release not found for project: ${params.projectId}, version: ${params.version}`);
+      }
+
+      // Get the catalog ID for this release
+      const catalogId = release.catalogId;
+
+      // Request delivery status from delivery microservice
+      let deliveryStatuses = [];
+      try {
+        const deliveryResponse = await lastValueFrom(
+          this.deliveryClient.send(DeliveryTopics.GET_DELIVERY_STATUSES, { catalogId })
+        ) as any;
+        deliveryStatuses = deliveryResponse || [];
+      } catch (error) {
+        this.logger.warn(`Failed to get delivery statuses from delivery service: ${error.message}`);
+      }
+
+      // Request deploy status from deploy microservice
+      let deployStatuses = [];
+      try {
+        const deployResponse = await lastValueFrom(
+          this.deployClient.send(DeployTopics.GET_DEPLOY_STATUSES, { catalogId })
+        ) as any;
+        deployStatuses = deployResponse || [];
+      } catch (error) {
+        this.logger.warn(`Failed to get deploy statuses from deploy service: ${error.message}`);
+      }
+
+      // Build a map of devices with their statuses
+      const deviceMap = new Map<string, DeviceDeploymentDetailDto>();
+
+      // Process delivery statuses
+      deliveryStatuses.forEach((d) => {
+        const deviceId = d.device?.ID || d.device;
+        if (!deviceId) return;
+
+        const status = d.deliveryStatus;
+        // Include devices that are not cancelled or deleted
+        if (status !== DeliveryStatusEnum.CANCELLED && status !== DeliveryStatusEnum.DELETED) {
+          if (!deviceMap.has(deviceId)) {
+            deviceMap.set(deviceId, {
+              deviceId: deviceId,
+              deviceName: d.device?.name || d.device?.Name,
+              deliveryStatus: status,
+              downloadTime: d.downloadDone,
+            });
+          } else {
+            deviceMap.get(deviceId).deliveryStatus = status;
+            deviceMap.get(deviceId).downloadTime = d.downloadDone;
+          }
+        }
+      });
+
+      // Process deploy statuses
+      deployStatuses.forEach((d) => {
+        const deviceId = d.device?.ID || d.device;
+        if (!deviceId) return;
+
+        const status = d.deployStatus;
+        // Include devices that are not cancelled or uninstalled
+        if (status !== DeployStatusEnum.CANCELLED && status !== DeployStatusEnum.UNINSTALL) {
+          if (!deviceMap.has(deviceId)) {
+            deviceMap.set(deviceId, {
+              deviceId: deviceId,
+              deviceName: d.device?.name || d.device?.Name,
+              deployStatus: status,
+              installationTime: d.deployDone,
+            });
+          } else {
+            deviceMap.get(deviceId).deployStatus = status;
+            deviceMap.get(deviceId).installationTime = d.deployDone;
+            // Update device name if not already set
+            if (!deviceMap.get(deviceId).deviceName && (d.device?.name || d.device?.Name)) {
+              deviceMap.get(deviceId).deviceName = d.device?.name || d.device?.Name;
+            }
+          }
+        }
+      });
+
+      // Process push offerings - add devices that haven't downloaded yet
+      let pushOfferingDevices = [];
+      try {
+        pushOfferingDevices = await lastValueFrom(
+          this.offeringClient.send(OfferingTopics.GET_PUSH_OFFERING_DEVICES, catalogId )
+        ) as any[] || [];
+      } catch (error) {
+        this.logger.warn(`Failed to get push offering devices from offering service: ${error.message}`);
+      }
+
+      pushOfferingDevices.forEach((po) => {
+        const deviceId = po.deviceId;
+        if (!deviceId) return;
+        // Only add if the device hasn't already downloaded the release
+        if (!deviceMap.has(deviceId)) {
+          deviceMap.set(deviceId, {
+            deviceId,
+            deviceName: po.deviceName,
+          });
+        }
+        // If device exists but hasn't finished downloading, leave it as-is (already pending)
+      });
+
+      // Convert map to array
+      const devices = Array.from(deviceMap.values());
+
+      // Count devices with different status
+      const downloadedCount = new Set(
+        deliveryStatuses
+          .filter((d) => d.deliveryStatus === DeliveryStatusEnum.DONE)
+          .map((d) => d.device?.ID || d.device)
+      ).size;
+
+      const installedCount = new Set(
+        deployStatuses
+          .filter((d) => d.deployStatus === DeployStatusEnum.DONE)
+          .map((d) => d.device?.ID || d.device)
+      ).size;
+
+
+      // 'total' is the number of devices in the map (all with any delivery/deploy status)
+      const total = deviceMap.size;
+
+      // 'pending' is the number of devices that have not downloaded or are still downloading
+      // We consider devices as pending if their deliveryStatus is not DONE (or is PENDING/IN_PROGRESS)
+      const pending = Array.from(deviceMap.values()).filter(
+        d => d.deliveryStatus !== DeliveryStatusEnum.DONE
+      ).length;
+
+      // Calculate deployment percentage
+      let deploymentPercentage = 0;
+      if (total > 0) {
+        deploymentPercentage = (installedCount / total) * 100;
+      }
+
+      const report: DeploymentReportDto = {
+        projectId: params.projectId,
+        releaseName: release.name,
+        version: params.version,
+        downloadedCount,
+        installedCount,
+        total,
+        pending,
+        deploymentPercentage: Math.round(deploymentPercentage * 100) / 100, // Round to 2 decimal places
+        devices,
+      };
+
+      this.logger.log(`Deployment report generated: ${JSON.stringify(report)}`);
+      return report;
+    } catch (error) {
+      this.logger.error(`Error generating deployment report: ${error.message}`);
+      throw error;
     }
   }
 }
