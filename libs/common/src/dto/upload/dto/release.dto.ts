@@ -214,7 +214,7 @@ export class ReleaseDto {
     dto.id = release.catalogId;
     dto.projectId = release?.project?.id;
     dto.projectName = release?.project?.name;
-    dto.name = release.name || "";
+    dto.name = release.name ?? "";
     dto.releaseNotes = release.releaseNotes ?? "";
     dto.metadata = release.metadata;
     dto.status = release.status;
@@ -228,7 +228,7 @@ export class ReleaseDto {
     dto.updatedBy = release.updatedBy ?? undefined;
     dto.isImported = release.isImported ?? false;
     // Readonly if it's imported AND released, but user doesn't have edit permission
-    dto.readonly = dto.isImported && release.status === ReleaseStatusEnum.RELEASED && !userCanEditImported;
+    dto.readonly = release.status === ReleaseStatusEnum.RELEASED && !userCanEditImported;
 
     return dto;
   }
@@ -313,7 +313,6 @@ export class ComponentV2Dto {
 
   @ApiProperty({ required: false, type: [ReleasePolicyDto], description: 'Policies associated with this release' })
   policies?: ReleasePolicyDto[]
-
 
   static fromEntity(release: ReleaseEntity): ComponentV2Dto {
     const dto = new ComponentV2Dto();
