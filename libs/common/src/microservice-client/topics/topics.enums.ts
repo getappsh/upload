@@ -92,6 +92,7 @@ export const OfferingTopicsEmit = {
     COMPONENT_UPLOAD_EVENT: `getapp-offering.component-upload-event${region}`,
     RELEASE_CHANGED_EVENT: `getapp-offering.release-changed-event${region}`,
     OFFERING_PUSH: `getapp-offering.push${region}`,
+    OFFERING_UNPUSH: `getapp-offering.unpush${region}`,
     DEVICE_SOFTWARE_EVENT: `getapp-offering.device.software-event${region}`,
     DEVICE_MAP_EVENT: `getapp-offering.device.map-event${region}`,
 }
@@ -159,6 +160,10 @@ export const ProjectManagementTopics = {
     CREATE_LABEL: `getapp-project-management.create-label${region}`,
     UPDATE_LABEL: `getapp-project-management.update-label${region}`,
     DELETE_LABEL: `getapp-project-management.delete-label${region}`,
+
+    // Deployment Report
+    GET_SYSTEM_WIDE_DEPLOYMENT_REPORT: `getapp-project-management.get-system-wide-deployment-report${region}`,
+    GET_PROJECT_DEPLOYMENT_REPORT: `getapp-project-management.get-project-deployment-report${region}`,
 
     CHECK_HEALTH: `getapp-project-management.check-health${region}`
 } as const
@@ -230,6 +235,8 @@ export const DeviceTopics = {
     LIST_PENDING_VERSIONS: `getapp-device.pending-versions.list${region}`,
     // Device Restrictions
     GET_DEVICE_RESTRICTIONS: `getapp-device.get-device-restrictions${region}`,
+    // OS
+    GET_ALL_OS: `getapp-device.get-all-os${region}`,
 } as const
 
 export const DeviceTopicsEmit = {
