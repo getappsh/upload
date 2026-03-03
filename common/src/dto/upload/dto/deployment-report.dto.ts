@@ -49,5 +49,3 @@ export class DeploymentReportDto {
   @ApiProperty({ description: 'List of devices with their deployment statuses', type: [DeviceDeploymentDetailDto] })
   devices: DeviceDeploymentDetailDto[];
 }
-
-
