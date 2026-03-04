@@ -587,14 +587,18 @@ export class ReleaseService implements OnModuleInit {
     this.logger.log(`Release: ${params.version} for project: ${params.projectId} dependencies released: ${dependenciesReleased} (if exists)`);
 
     const installationArtifacts = release.artifacts.filter((artifact) => artifact?.isInstallationFile);
-    const fileUploaded = installationArtifacts?.length > 0 && await this.fileUploadService
-      .areFilesUploaded(
-        installationArtifacts
-          .filter((artifact) => artifact?.type === ArtifactTypeEnum.FILE)
-          .map((artifact) => artifact?.fileUpload?.id)
-      );
+    const fileInstallationArtifacts = installationArtifacts.filter((artifact) => artifact?.type === ArtifactTypeEnum.FILE);
+    const dockerInstallationArtifacts = installationArtifacts.filter((artifact) => artifact?.type === ArtifactTypeEnum.DOCKER_IMAGE);
 
-    this.logger.log(`Release: ${params.version} for project: ${params.projectId} has ${installationArtifacts.length} installation files and they are ready: ${fileUploaded}`);
+    // If there are file installation artifacts, ALL of them must be fully uploaded.
+    // If there are no file installation artifacts, fall back to checking docker images are present (they're always ready once added).
+    const fileUploaded = installationArtifacts.length > 0 && (
+      fileInstallationArtifacts.length > 0
+        ? await this.fileUploadService.areFilesUploaded(fileInstallationArtifacts.map((artifact) => artifact?.fileUpload?.id))
+        : dockerInstallationArtifacts.length > 0
+    );
+
+    this.logger.log(`Release: ${params.version} for project: ${params.projectId} has ${installationArtifacts.length} installation artifacts (${fileInstallationArtifacts.length} files, ${dockerInstallationArtifacts.length} docker) and they are ready: ${fileUploaded}`);
 
     this.logger.debug(`Release: ${params.version} for project: ${params.projectId}, status: ${release.status}, regulationsCompliant: ${regulationsCompliant}, dependenciesReleased: ${dependenciesReleased}, fileUploaded: ${fileUploaded}`);
 
