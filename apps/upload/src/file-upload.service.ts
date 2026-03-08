@@ -1,6 +1,6 @@
 import { FileUploadEntity, FileUPloadStatusEnum, ReleaseArtifactEntity } from "@app/common/database/entities";
 import { CreateFileUploadUrlDto, FileUploadUrlDto, UpdateFileUploadDto } from "@app/common/dto/upload";
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, LessThanOrEqual, Repository } from "typeorm";
@@ -11,6 +11,8 @@ import { EventEmitter } from 'eventemitter3';
 import { FileProcessingService } from "@app/common/AWS/file-processing.service";
 import { HttpService } from "@nestjs/axios";
 import * as crypto from 'crypto';
+import { MicroserviceClient, MicroserviceName } from '@app/common/microservice-client';
+import { SbomTopicsEmit } from '@app/common/microservice-client/topics';
 
 
 @Injectable()
@@ -28,6 +30,7 @@ export class FileUploadService {
     @InjectRepository(FileUploadEntity) private readonly uploadRepo: Repository<FileUploadEntity>,
     @InjectRepository(ReleaseArtifactEntity) private readonly artifactRepo: Repository<ReleaseArtifactEntity>,
     private readonly httpService: HttpService,
+    @Inject(MicroserviceName.SBOM_GENERATOR_SERVICE) private readonly sbomClient: MicroserviceClient,
   ) { }
 
 
@@ -227,6 +230,20 @@ export class FileUploadService {
     } else {
       if (file.status === FileUPloadStatusEnum.UPLOADED) {
         this.emitter.emit("fileCreated", file)
+
+        // Emit a fire-and-forget event to sbom-generator to scan the uploaded file.
+        // Wrapped in try/catch because sbom-generator is an optional service.
+        try {
+          this.sbomClient.emit(SbomTopicsEmit.SCAN_FILE, {
+            objectKey: file.objectKey,
+            bucketName: this.bucketName,
+            triggeredBy: 'upload-service',
+          }).subscribe({
+            error: (err) => this.logger.warn(`SBOM scan emit failed (non-critical): ${err?.message}`),
+          });
+        } catch (sbomErr) {
+          this.logger.warn(`Could not emit SBOM scan event (non-critical): ${sbomErr?.message}`);
+        }
       } else if (file.status === FileUPloadStatusEnum.REMOVED) {
         this.emitter.emit("fileDeleted", file)
       }

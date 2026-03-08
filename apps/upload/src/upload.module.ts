@@ -51,6 +51,11 @@ import { PermissionsModule } from '@app/common/permissions/permissions.module';
       type: MicroserviceType.DEPLOY,
       id: 'upload'
     }),
+    MicroserviceModule.register({
+      name: MicroserviceName.SBOM_GENERATOR_SERVICE,
+      type: MicroserviceType.SBOM_GENERATOR,
+      id: 'upload'
+    }),
     ApmModule,
     DatabaseModule,
     RuleModule,
