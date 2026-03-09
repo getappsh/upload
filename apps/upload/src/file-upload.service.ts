@@ -1,6 +1,6 @@
 import { FileUploadEntity, FileUPloadStatusEnum, ReleaseArtifactEntity } from "@app/common/database/entities";
 import { CreateFileUploadUrlDto, FileUploadUrlDto, UpdateFileUploadDto } from "@app/common/dto/upload";
-import { BadRequestException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Inject, Injectable, Logger, NotFoundException, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, LessThanOrEqual, Repository } from "typeorm";
@@ -11,12 +11,13 @@ import { EventEmitter } from 'eventemitter3';
 import { FileProcessingService } from "@app/common/AWS/file-processing.service";
 import { HttpService } from "@nestjs/axios";
 import * as crypto from 'crypto';
+import { firstValueFrom } from 'rxjs';
 import { MicroserviceClient, MicroserviceName } from '@app/common/microservice-client';
-import { SbomTopicsEmit } from '@app/common/microservice-client/topics';
+import { SbomTopics, SbomTopicsEmit } from '@app/common/microservice-client/topics';
 
 
 @Injectable()
-export class FileUploadService {
+export class FileUploadService implements OnModuleInit {
 
   private static readonly OBJECT_PREFIX = 'upload/';
   private readonly logger = new Logger(FileUploadService.name);
@@ -32,6 +33,11 @@ export class FileUploadService {
     private readonly httpService: HttpService,
     @Inject(MicroserviceName.SBOM_GENERATOR_SERVICE) private readonly sbomClient: MicroserviceClient,
   ) { }
+
+  async onModuleInit() {
+    this.sbomClient.subscribeToResponseOf([SbomTopics.SCAN_REQUEST]);
+    await this.sbomClient.connect();
+  }
 
 
   async createFileUploadUrl(dto: CreateFileUploadUrlDto) {
@@ -231,25 +237,44 @@ export class FileUploadService {
       if (file.status === FileUPloadStatusEnum.UPLOADED) {
         this.emitter.emit("fileCreated", file)
 
-        // Emit a fire-and-forget event to sbom-generator to scan the uploaded file.
-        // Wrapped in try/catch because sbom-generator is an optional service.
-        try {
-          this.sbomClient.emit(SbomTopicsEmit.SCAN_FILE, {
-            objectKey: file.objectKey,
-            bucketName: this.bucketName,
-            triggeredBy: 'upload-service',
-          }).subscribe({
-            error: (err) => this.logger.warn(`SBOM scan emit failed (non-critical): ${err?.message}`),
-          });
-        } catch (sbomErr) {
-          this.logger.warn(`Could not emit SBOM scan event (non-critical): ${sbomErr?.message}`);
-        }
+        // Fire-and-forget: trigger SBOM scan via request-response so we can
+        // persist the returned scan ID on the matching ReleaseArtifactEntity.
+        // Wrapped in a catch because sbom-generator is an optional service.
+        this.triggerSbomScanAndSaveScanId(file.objectKey).catch(err => {
+          this.logger.warn(`SBOM scan trigger failed (non-critical): ${err?.message}`);
+        });
       } else if (file.status === FileUPloadStatusEnum.REMOVED) {
         this.emitter.emit("fileDeleted", file)
       }
     }
 
     return res.affected
+  }
+
+  /**
+   * Trigger an SBOM scan for the uploaded file and persist the scan ID on the
+   * matching ReleaseArtifactEntity so callers can later look up results.
+   */
+  private async triggerSbomScanAndSaveScanId(objectKey: string): Promise<void> {
+    const presignedUrl = await this.minioClient.generatePresignedDownloadUrl(this.bucketName, objectKey);
+    const response = await firstValueFrom(
+      this.sbomClient.send<{ scanId: string; status: string }>(SbomTopics.SCAN_REQUEST, {
+        target: presignedUrl,
+        targetType: 'file',
+        triggeredBy: 'upload-service',
+      })
+    );
+    if (response?.scanId) {
+      // Repository.update() cannot filter by nested relation properties (objectKey belongs
+      // to FileUploadEntity, not ReleaseArtifactEntity). Resolve the FileUpload ID first so
+      // TypeORM can map it to the file_upload_id foreign key column.
+      const file = await this.getFileByObjectKey(objectKey);
+      await this.artifactRepo.update(
+        { fileUpload: { id: file.id } },
+        { sbomScanId: response.scanId }
+      );
+      this.logger.log(`Saved SBOM scan ID ${response.scanId} for objectKey: ${objectKey}`);
+    }
   }
 
   /**
