@@ -357,6 +357,7 @@ export class ReleaseService implements OnModuleInit {
         // TODO consider adding version id to object key to avoid overwriting same version of other branches
         objectKey: `${artifact.projectId}/${artifact.version}`,
         userId: 'release',
+        enableSbomScan: artifact.enableSbomScan ?? true,
       } as CreateFileUploadUrlDto
       const upload = await this.fileUploadService.createFileUploadUrl(uploadDto);
       artifactEntity.fileUpload = { id: upload.id } as unknown as FileUploadEntity;
@@ -382,9 +383,11 @@ export class ReleaseService implements OnModuleInit {
 
     if (artifact.type === ArtifactTypeEnum.DOCKER_IMAGE) {
       this.refreshReleaseState(artifact);
-      this.fileUploadService.triggerDockerSbomScan(artifact.dockerImageUrl, res.artifactId).catch(err => {
-        this.logger.warn(`SBOM scan trigger failed for docker artifact (non-critical): ${err?.message}`);
-      });
+      if (artifact.enableSbomScan !== false) {
+        this.fileUploadService.triggerDockerSbomScan(artifact.dockerImageUrl, res.artifactId).catch(err => {
+          this.logger.warn(`SBOM scan trigger failed for docker artifact (non-critical): ${err?.message}`);
+        });
+      }
     }
 
     return res;

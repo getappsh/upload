@@ -23,6 +23,7 @@ export class FileUploadService implements OnModuleInit {
   private readonly logger = new Logger(FileUploadService.name);
   private readonly bucketName = this.configService.get('BUCKET_NAME');
   private emitter: EventEmitter = new EventEmitter();
+  private readonly sbomScanFlags = new Map<string, boolean>();
 
   constructor(
     private readonly configService: ConfigService,
@@ -48,7 +49,9 @@ export class FileUploadService implements OnModuleInit {
     upload.userId = dto.userId;
     upload.fileName = dto.fileName;
     upload.objectKey = objectKey;
-    upload.bucketName = this.bucketName
+    upload.bucketName = this.bucketName;
+
+    this.sbomScanFlags.set(objectKey, dto.enableSbomScan ?? true);
 
 
     const signedUrl = await this.minioClient.generatePresignedUploadUrl(this.bucketName, objectKey);
@@ -240,9 +243,14 @@ export class FileUploadService implements OnModuleInit {
         // Fire-and-forget: trigger SBOM scan via request-response so we can
         // persist the returned scan ID on the matching ReleaseArtifactEntity.
         // Wrapped in a catch because sbom-generator is an optional service.
-        this.triggerSbomScanAndSaveScanId(file.objectKey).catch(err => {
-          this.logger.warn(`SBOM scan trigger failed (non-critical): ${err?.message}`);
-        });
+        // Only triggered when enableSbomScan was not explicitly set to false in the original DTO.
+        const enableSbomScan = this.sbomScanFlags.get(file.objectKey) ?? true;
+        this.sbomScanFlags.delete(file.objectKey);
+        if (enableSbomScan) {
+          this.triggerSbomScanAndSaveScanId(file.objectKey).catch(err => {
+            this.logger.warn(`SBOM scan trigger failed (non-critical): ${err?.message}`);
+          });
+        }
       } else if (file.status === FileUPloadStatusEnum.REMOVED) {
         this.emitter.emit("fileDeleted", file)
       }
