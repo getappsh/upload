@@ -381,7 +381,10 @@ export class ReleaseService implements OnModuleInit {
     await this.updateTotalSize(artifact.projectId, artifact.version);
 
     if (artifact.type === ArtifactTypeEnum.DOCKER_IMAGE) {
-      this.refreshReleaseState(artifact)
+      this.refreshReleaseState(artifact);
+      this.fileUploadService.triggerDockerSbomScan(artifact.dockerImageUrl, res.artifactId).catch(err => {
+        this.logger.warn(`SBOM scan trigger failed for docker artifact (non-critical): ${err?.message}`);
+      });
     }
 
     return res;

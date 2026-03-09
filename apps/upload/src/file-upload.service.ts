@@ -278,6 +278,24 @@ export class FileUploadService implements OnModuleInit {
   }
 
   /**
+   * Trigger an SBOM scan for a docker image URL and persist the scan ID on the
+   * matching ReleaseArtifactEntity.
+   */
+  async triggerDockerSbomScan(dockerImageUrl: string, artifactId: number): Promise<void> {
+    const response = await firstValueFrom(
+      this.sbomClient.send<{ scanId: string; status: string }>(SbomTopics.SCAN_REQUEST, {
+        target: dockerImageUrl,
+        targetType: 'registry',
+        triggeredBy: 'upload-service',
+      })
+    );
+    if (response?.scanId) {
+      await this.artifactRepo.update({ id: artifactId }, { sbomScanId: response.scanId });
+      this.logger.log(`Saved SBOM scan ID ${response.scanId} for docker artifact: ${artifactId}`);
+    }
+  }
+
+  /**
    * Efficiently process file for SHA256 and/or Cosign signature using a single stream
    * @param objectKey - The object key
    * @param calculateSha256 - Whether to calculate SHA256
