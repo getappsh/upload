@@ -505,6 +505,12 @@ export class FileUploadService implements OnModuleInit {
     this.logger.log('Syncing uploaded files');
 
     const now = new Date();
+    // A PENDING upload whose presigned URL has already expired can never succeed.
+    // Use UPLOAD_URL_EXPIRE (seconds) as the staleness threshold — identical to the
+    // value passed to MinIO when the presigned URL was issued.
+    const uploadUrlExpireSeconds = Number(this.configService.get<number>('UPLOAD_URL_EXPIRE')) || 3600;
+    const staleThreshold = new Date(now.getTime() - uploadUrlExpireSeconds * 1000);
+
     const batchSize = 10;
     let skip = 0;
     let files;
@@ -512,7 +518,7 @@ export class FileUploadService implements OnModuleInit {
     do {
       this.logger.log(`Getting pending files, batch starting at ${skip}`);
       files = await this.uploadRepo.find({
-        select: ['objectKey', 'id'],
+        select: ['objectKey', 'id', 'createdDate'],
         where: {
           status: FileUPloadStatusEnum.PENDING,
           createdDate: LessThanOrEqual(now)
@@ -563,7 +569,33 @@ export class FileUploadService implements OnModuleInit {
           Promise.all(filesToUpdate.map(file => this.updateUploadFile(file))).catch(err => {
             this.logger.error(`Error updating files: ${err}`)
           });
+        }
 
+        // Flag abandoned uploads: not in the bucket AND presigned URL has already expired.
+        // Until the URL expires we cannot distinguish "slow upload" from "abandoned", so
+        // we must not flag anything before that point.
+        const staleFiles = batch.filter((file, index) => {
+          const stats = filesStats[index];
+          return !stats && file.createdDate && file.createdDate < staleThreshold;
+        });
+
+        if (staleFiles.length > 0) {
+          this.logger.warn(
+            `Marking ${staleFiles.length} abandoned PENDING upload(s) as ERROR ` +
+            `(presigned URL expired, no object found in bucket): ` +
+            staleFiles.map(f => f.objectKey).join(', ')
+          );
+          await Promise.all(
+            staleFiles.map(file =>
+              this.uploadRepo.update(
+                { objectKey: file.objectKey },
+                {
+                  status: FileUPloadStatusEnum.ERROR,
+                  error: 'Upload never completed — the browser upload was abandoned and the presigned URL has expired.',
+                }
+              ).catch(err => this.logger.error(`Failed to mark stale upload as ERROR: ${file.objectKey}, ${err}`))
+            )
+          );
         }
       }
 
