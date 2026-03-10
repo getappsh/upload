@@ -346,6 +346,7 @@ export class ReleaseService implements OnModuleInit {
     artifactEntity.isInstallationFile = artifact.isInstallationFile;
     artifactEntity.arguments = artifact.arguments;
     artifactEntity.isExecutable = artifact.isExecutable;
+    artifactEntity.enableSbomScan = artifact.enableSbomScan ?? true;
 
     const res = new SetReleaseArtifactResDto();
     const upsertOptions: UpsertOptions<ReleaseArtifactEntity> = { conflictPaths: [] };
