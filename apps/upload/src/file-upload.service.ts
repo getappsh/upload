@@ -304,6 +304,15 @@ export class FileUploadService implements OnModuleInit {
   }
 
   /**
+   * Fire-and-forget: request the sbom-generator to delete (or cancel) a scan.
+   * Safe to call non-critically; errors are only logged.
+   */
+  triggerSbomScanDelete(scanId: string): void {
+    this.logger.log(`Requesting SBOM scan deletion: ${scanId}`);
+    this.sbomClient.emit(SbomTopics.DELETE_SCAN, { scanId });
+  }
+
+  /**
    * Efficiently process file for SHA256 and/or Cosign signature using a single stream
    * @param objectKey - The object key
    * @param calculateSha256 - Whether to calculate SHA256

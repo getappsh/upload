@@ -424,6 +424,11 @@ export class ReleaseService implements OnModuleInit {
       await this.artifactRepo.delete({ id: params.artifactId })
     }
 
+    // If a SBOM scan was associated, request its deletion/cancellation (fire-and-forget)
+    if (artifact.sbomScanId) {
+      this.fileUploadService.triggerSbomScanDelete(artifact.sbomScanId);
+    }
+
     return "Release Artifact deleted"
   }
 
