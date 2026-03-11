@@ -602,8 +602,8 @@ export class FileUploadService implements OnModuleInit {
       skip += batchSize;
     } while (files.length === batchSize);
   }
-
-  @TimeoutRepeatTask({ name: "listen-to-minio-events", initialTimeout: 1000, repeatTimeout: 60000 }) // Start after 1 second, repeat when finished every 60 seconds
+  // Start after 1 second, repeat when finished every 60 seconds, check lock every 5 minutes if failed to acquire
+  @TimeoutRepeatTask({ name: "listen-to-minio-events", initialTimeout: 1000, repeatTimeout: 60000, acquireFailTimeout: 5 * 60 * 1000 }) 
   async listenTomMinioEvents() {
     if (process.env.MINIO_EVENTS_SKIP === 'true') {
       this.logger.verbose('Minio events listener skipped');
