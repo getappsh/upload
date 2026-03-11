@@ -264,11 +264,11 @@ export class FileUploadService implements OnModuleInit {
    * matching ReleaseArtifactEntity so callers can later look up results.
    */
   private async triggerSbomScanAndSaveScanId(objectKey: string): Promise<void> {
-    const presignedUrl = await this.minioClient.generatePresignedDownloadUrl(this.bucketName, objectKey);
     const response = await firstValueFrom(
       this.sbomClient.send<{ scanId: string; status: string }>(SbomTopics.SCAN_REQUEST, {
-        target: presignedUrl,
+        target: objectKey,
         targetType: 'file',
+        isStoredInBucket: true,
         triggeredBy: 'upload-service',
       })
     );
