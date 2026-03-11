@@ -181,6 +181,13 @@ export class UploadController {
     return this.releasesService.importRelease(dto);
   }
 
+  @MessagePattern(UploadTopics.GET_SBOM_ENABLED)
+  getSbomEnabled() {
+    const enabled = process.env.SBOM_ENABLED !== 'false';
+    this.logger.log(`SBOM enabled: ${enabled}`);
+    return { enabled };
+  }
+
   @EventPattern(UploadTopicsEmit.PROJECT_REGULATION_CHANGED)
   async onProjectRegulationChanged(@RpcPayload() event: RegulationChangedEvent) {
     await this.releasesService.onProjectRegulationChanged(event);

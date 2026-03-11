@@ -346,6 +346,7 @@ export class ReleaseService implements OnModuleInit {
     artifactEntity.isInstallationFile = artifact.isInstallationFile;
     artifactEntity.arguments = artifact.arguments;
     artifactEntity.isExecutable = artifact.isExecutable;
+    artifactEntity.enableSbomScan = artifact.enableSbomScan ?? true;
 
     const res = new SetReleaseArtifactResDto();
     const upsertOptions: UpsertOptions<ReleaseArtifactEntity> = { conflictPaths: [] };
@@ -357,6 +358,7 @@ export class ReleaseService implements OnModuleInit {
         // TODO consider adding version id to object key to avoid overwriting same version of other branches
         objectKey: `${artifact.projectId}/${artifact.version}`,
         userId: 'release',
+        enableSbomScan: artifact.enableSbomScan ?? true,
       } as CreateFileUploadUrlDto
       const upload = await this.fileUploadService.createFileUploadUrl(uploadDto);
       artifactEntity.fileUpload = { id: upload.id } as unknown as FileUploadEntity;
@@ -381,7 +383,12 @@ export class ReleaseService implements OnModuleInit {
     await this.updateTotalSize(artifact.projectId, artifact.version);
 
     if (artifact.type === ArtifactTypeEnum.DOCKER_IMAGE) {
-      this.refreshReleaseState(artifact)
+      this.refreshReleaseState(artifact);
+      if (artifact.enableSbomScan !== false) {
+        this.fileUploadService.triggerDockerSbomScan(artifact.dockerImageUrl, res.artifactId).catch(err => {
+          this.logger.warn(`SBOM scan trigger failed for docker artifact (non-critical): ${err?.message}`);
+        });
+      }
     }
 
     return res;
@@ -415,6 +422,11 @@ export class ReleaseService implements OnModuleInit {
         await this.onFileDelete(artifact.fileUpload);
       }
       await this.artifactRepo.delete({ id: params.artifactId })
+    }
+
+    // If a SBOM scan was associated, request its deletion/cancellation (fire-and-forget)
+    if (artifact.sbomScanId) {
+      this.fileUploadService.triggerSbomScanDelete(artifact.sbomScanId);
     }
 
     return "Release Artifact deleted"

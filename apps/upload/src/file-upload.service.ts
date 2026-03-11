@@ -1,6 +1,6 @@
 import { FileUploadEntity, FileUPloadStatusEnum, ReleaseArtifactEntity } from "@app/common/database/entities";
 import { CreateFileUploadUrlDto, FileUploadUrlDto, UpdateFileUploadDto } from "@app/common/dto/upload";
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Inject, Injectable, Logger, NotFoundException, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, LessThanOrEqual, Repository } from "typeorm";
@@ -11,15 +11,19 @@ import { EventEmitter } from 'eventemitter3';
 import { FileProcessingService } from "@app/common/AWS/file-processing.service";
 import { HttpService } from "@nestjs/axios";
 import * as crypto from 'crypto';
+import { firstValueFrom } from 'rxjs';
+import { MicroserviceClient, MicroserviceName } from '@app/common/microservice-client';
+import { SbomTopics, SbomTopicsEmit } from '@app/common/microservice-client/topics';
 
 
 @Injectable()
-export class FileUploadService {
+export class FileUploadService implements OnModuleInit {
 
   private static readonly OBJECT_PREFIX = 'upload/';
   private readonly logger = new Logger(FileUploadService.name);
   private readonly bucketName = this.configService.get('BUCKET_NAME');
   private emitter: EventEmitter = new EventEmitter();
+  private readonly sbomScanFlags = new Map<string, boolean>();
 
   constructor(
     private readonly configService: ConfigService,
@@ -28,7 +32,13 @@ export class FileUploadService {
     @InjectRepository(FileUploadEntity) private readonly uploadRepo: Repository<FileUploadEntity>,
     @InjectRepository(ReleaseArtifactEntity) private readonly artifactRepo: Repository<ReleaseArtifactEntity>,
     private readonly httpService: HttpService,
+    @Inject(MicroserviceName.SBOM_GENERATOR_SERVICE) private readonly sbomClient: MicroserviceClient,
   ) { }
+
+  async onModuleInit() {
+    this.sbomClient.subscribeToResponseOf([SbomTopics.SCAN_REQUEST]);
+    await this.sbomClient.connect();
+  }
 
 
   async createFileUploadUrl(dto: CreateFileUploadUrlDto) {
@@ -39,7 +49,9 @@ export class FileUploadService {
     upload.userId = dto.userId;
     upload.fileName = dto.fileName;
     upload.objectKey = objectKey;
-    upload.bucketName = this.bucketName
+    upload.bucketName = this.bucketName;
+
+    this.sbomScanFlags.set(objectKey, dto.enableSbomScan ?? true);
 
 
     const signedUrl = await this.minioClient.generatePresignedUploadUrl(this.bucketName, objectKey);
@@ -227,12 +239,77 @@ export class FileUploadService {
     } else {
       if (file.status === FileUPloadStatusEnum.UPLOADED) {
         this.emitter.emit("fileCreated", file)
+
+        // Fire-and-forget: trigger SBOM scan via request-response so we can
+        // persist the returned scan ID on the matching ReleaseArtifactEntity.
+        // Wrapped in a catch because sbom-generator is an optional service.
+        // Only triggered when enableSbomScan was not explicitly set to false in the original DTO.
+        const enableSbomScan = this.sbomScanFlags.get(file.objectKey) ?? true;
+        this.sbomScanFlags.delete(file.objectKey);
+        if (enableSbomScan) {
+          this.triggerSbomScanAndSaveScanId(file.objectKey).catch(err => {
+            this.logger.warn(`SBOM scan trigger failed (non-critical): ${err?.message}`);
+          });
+        }
       } else if (file.status === FileUPloadStatusEnum.REMOVED) {
         this.emitter.emit("fileDeleted", file)
       }
     }
 
     return res.affected
+  }
+
+  /**
+   * Trigger an SBOM scan for the uploaded file and persist the scan ID on the
+   * matching ReleaseArtifactEntity so callers can later look up results.
+   */
+  private async triggerSbomScanAndSaveScanId(objectKey: string): Promise<void> {
+    const response = await firstValueFrom(
+      this.sbomClient.send<{ scanId: string; status: string }>(SbomTopics.SCAN_REQUEST, {
+        target: objectKey,
+        targetType: 'file',
+        isStoredInBucket: true,
+        triggeredBy: 'upload-service',
+      })
+    );
+    if (response?.scanId) {
+      // Repository.update() cannot filter by nested relation properties (objectKey belongs
+      // to FileUploadEntity, not ReleaseArtifactEntity). Resolve the FileUpload ID first so
+      // TypeORM can map it to the file_upload_id foreign key column.
+      const file = await this.getFileByObjectKey(objectKey);
+      await this.artifactRepo.update(
+        { fileUpload: { id: file.id } },
+        { sbomScanId: response.scanId }
+      );
+      this.logger.log(`Saved SBOM scan ID ${response.scanId} for objectKey: ${objectKey}`);
+    }
+  }
+
+  /**
+   * Trigger an SBOM scan for a docker image URL and persist the scan ID on the
+   * matching ReleaseArtifactEntity.
+   */
+  async triggerDockerSbomScan(dockerImageUrl: string, artifactId: number): Promise<void> {
+    const response = await firstValueFrom(
+      this.sbomClient.send<{ scanId: string; status: string }>(SbomTopics.SCAN_REQUEST, {
+        target: dockerImageUrl,
+        targetType: 'registry',
+        triggeredBy: 'upload-service',
+      })
+    );
+    if (response?.scanId) {
+      await this.artifactRepo.update({ id: artifactId }, { sbomScanId: response.scanId });
+      this.logger.log(`Saved SBOM scan ID ${response.scanId} for docker artifact: ${artifactId}`);
+    }
+  }
+
+  /**
+   * Fire-and-forget: request the sbom-generator to delete (or cancel) a scan.
+   * Safe to call non-critically; errors are only logged.
+   */
+  triggerSbomScanDelete(scanId: string): void {
+    this.logger.log(`Requesting SBOM scan deletion: ${scanId}`);
+    this.sbomClient.emit(SbomTopics.DELETE_SCAN, { scanId });
   }
 
   /**
@@ -428,6 +505,12 @@ export class FileUploadService {
     this.logger.log('Syncing uploaded files');
 
     const now = new Date();
+    // A PENDING upload whose presigned URL has already expired can never succeed.
+    // Use UPLOAD_URL_EXPIRE (seconds) as the staleness threshold — identical to the
+    // value passed to MinIO when the presigned URL was issued.
+    const uploadUrlExpireSeconds = Number(this.configService.get<number>('UPLOAD_URL_EXPIRE')) || 3600;
+    const staleThreshold = new Date(now.getTime() - uploadUrlExpireSeconds * 1000);
+
     const batchSize = 10;
     let skip = 0;
     let files;
@@ -435,7 +518,7 @@ export class FileUploadService {
     do {
       this.logger.log(`Getting pending files, batch starting at ${skip}`);
       files = await this.uploadRepo.find({
-        select: ['objectKey', 'id'],
+        select: ['objectKey', 'id', 'createdDate'],
         where: {
           status: FileUPloadStatusEnum.PENDING,
           createdDate: LessThanOrEqual(now)
@@ -486,15 +569,41 @@ export class FileUploadService {
           Promise.all(filesToUpdate.map(file => this.updateUploadFile(file))).catch(err => {
             this.logger.error(`Error updating files: ${err}`)
           });
+        }
 
+        // Flag abandoned uploads: not in the bucket AND presigned URL has already expired.
+        // Until the URL expires we cannot distinguish "slow upload" from "abandoned", so
+        // we must not flag anything before that point.
+        const staleFiles = batch.filter((file, index) => {
+          const stats = filesStats[index];
+          return !stats && file.createdDate && file.createdDate < staleThreshold;
+        });
+
+        if (staleFiles.length > 0) {
+          this.logger.warn(
+            `Marking ${staleFiles.length} abandoned PENDING upload(s) as ERROR ` +
+            `(presigned URL expired, no object found in bucket): ` +
+            staleFiles.map(f => f.objectKey).join(', ')
+          );
+          await Promise.all(
+            staleFiles.map(file =>
+              this.uploadRepo.update(
+                { objectKey: file.objectKey },
+                {
+                  status: FileUPloadStatusEnum.ERROR,
+                  error: 'Upload never completed — the browser upload was abandoned and the presigned URL has expired.',
+                }
+              ).catch(err => this.logger.error(`Failed to mark stale upload as ERROR: ${file.objectKey}, ${err}`))
+            )
+          );
         }
       }
 
       skip += batchSize;
     } while (files.length === batchSize);
   }
-
-  @TimeoutRepeatTask({ name: "listen-to-minio-events", initialTimeout: 1000, repeatTimeout: 60000 }) // Start after 1 second, repeat when finished every 60 seconds
+  // Start after 1 second, repeat when finished every 60 seconds, check lock every 5 minutes if failed to acquire
+  @TimeoutRepeatTask({ name: "listen-to-minio-events", initialTimeout: 1000, repeatTimeout: 60000, acquireFailTimeout: 5 * 60 * 1000 }) 
   async listenTomMinioEvents() {
     if (process.env.MINIO_EVENTS_SKIP === 'true') {
       this.logger.verbose('Minio events listener skipped');
