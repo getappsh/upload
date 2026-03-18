@@ -1,9 +1,9 @@
 import { Injectable, UnauthorizedException, Inject, Logger } from '@nestjs/common';
-import { RuleService } from '@app/common/rules/services';
 import { CreatePolicyDto, UpdateRuleDto, PolicyQueryDto, CreateRuleFieldDto } from '@app/common/rules/dto';
 import { RuleType } from '@app/common/rules/enums/rule.enums';
 import { PROJECT_ACCESS_SERVICE, ProjectAccessService } from '@app/common/utils/project-access';
 import { RuleValidationService } from '@app/common/rules/services/rule-validation.service';
+import { RuleService } from '@app/common/rules/services';
 
 @Injectable()
 export class PolicyService {
@@ -134,6 +134,14 @@ export class PolicyService {
     return this.ruleValidationService.removeRuleField(fieldName);
   }
 
+  /**
+   * Evaluates a policy rule against all releases.
+   *
+   * Accepts either an existing ruleId (loads it from the DB) or an inline rule
+   * JSON.  For each release it builds a context from the release properties and
+   * evaluates the rule against that context.  Returns the list of matching
+   * releases alongside summary counts.
+   */
   /**
    * Validates that a user has access to a policy's associated projects
    * @throws UnauthorizedException if user is not authenticated or doesn't have access
