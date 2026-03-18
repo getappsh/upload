@@ -135,14 +135,6 @@ export class PolicyService {
   }
 
   /**
-   * Evaluates a policy rule against all releases.
-   *
-   * Accepts either an existing ruleId (loads it from the DB) or an inline rule
-   * JSON.  For each release it builds a context from the release properties and
-   * evaluates the rule against that context.  Returns the list of matching
-   * releases alongside summary counts.
-   */
-  /**
    * Validates that a user has access to a policy's associated projects
    * @throws UnauthorizedException if user is not authenticated or doesn't have access
    */
