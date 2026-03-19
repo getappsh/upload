@@ -1201,4 +1201,24 @@ export class ReleaseService implements OnModuleInit {
       throw error;
     }
   }
+
+  /**
+   * Links the SBOM report bucket path to the artifact identified by the scan ID.
+   * Called when sbom-generator emits SCAN_COMPLETED.
+   */
+  async linkSbomReport(scanId: string, reportBucketPath: string | null): Promise<void> {
+    if (!reportBucketPath) {
+      this.logger.warn(`SBOM scan ${scanId} completed without a report path (scan failed) — skipping link`);
+      return;
+    }
+
+    const artifact = await this.artifactRepo.findOne({ where: { sbomScanId: scanId } });
+    if (!artifact) {
+      this.logger.warn(`No artifact found for sbomScanId=${scanId} — cannot link report`);
+      return;
+    }
+
+    await this.artifactRepo.update({ id: artifact.id }, { sbomReportPath: reportBucketPath });
+    this.logger.log(`Linked SBOM report ${reportBucketPath} to artifact ${artifact.id}`);
+  }
 }

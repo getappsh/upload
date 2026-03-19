@@ -36,8 +36,18 @@ export class FileUploadService implements OnModuleInit {
   ) { }
 
   async onModuleInit() {
-    this.sbomClient.subscribeToResponseOf([SbomTopics.SCAN_REQUEST]);
+    this.sbomClient.subscribeToResponseOf([SbomTopics.SCAN_REQUEST, SbomTopics.CHECK_HEALTH]);
     await this.sbomClient.connect();
+  }
+
+  /** Pings the sbom-generator and returns true if it responds within the timeout. */
+  async checkSbomHealth(timeoutMs = 3000): Promise<boolean> {
+    try {
+      await firstValueFrom(this.sbomClient.send(SbomTopics.CHECK_HEALTH, {}, timeoutMs));
+      return true;
+    } catch {
+      return false;
+    }
   }
 
 

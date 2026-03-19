@@ -1,4 +1,4 @@
-import { UploadTopics, UploadTopicsEmit, ProjectManagementTopicsEmit } from '@app/common/microservice-client/topics';
+import { UploadTopics, UploadTopicsEmit, ProjectManagementTopicsEmit, SbomTopicsEmit } from '@app/common/microservice-client/topics';
 import { RoleInProject, UploadVersionEntity } from '@app/common/database/entities';
 import { Controller, Logger, UseInterceptors, Inject } from '@nestjs/common';
 import { EventPattern, MessagePattern, RpcException } from '@nestjs/microservices';
@@ -14,6 +14,7 @@ import { ValidateProjectAnyAccess } from '@app/common/utils/project-access';
 import { RegulationChangedEvent } from '@app/common/dto/project-management';
 import { AuthUser } from './utils/auth-user.decorator';
 import { PolicyService } from './policy.service';
+import { ScanCompletedEventDto } from '@app/common/dto/sbom';
 
 
 @Controller()
@@ -182,10 +183,20 @@ export class UploadController {
   }
 
   @MessagePattern(UploadTopics.GET_SBOM_ENABLED)
-  getSbomEnabled() {
-    const enabled = process.env.SBOM_ENABLED !== 'false';
-    this.logger.log(`SBOM enabled: ${enabled}`);
-    return { enabled };
+  async getSbomEnabled() {
+    const envValue = process.env.SBOM_ENABLED;
+
+    // Explicitly configured — trust the env var.
+    if (envValue !== undefined) {
+      const enabled = envValue !== 'false';
+      this.logger.log(`SBOM enabled (env): ${enabled}`);
+      return { enabled };
+    }
+
+    // Not configured — auto-detect by health-checking the sbom-generator service.
+    const reachable = await this.fileUploadService.checkSbomHealth();
+    this.logger.log(`SBOM enabled (auto-detected): ${reachable}`);
+    return { enabled: reachable };
   }
 
   @EventPattern(UploadTopicsEmit.PROJECT_REGULATION_CHANGED)
@@ -228,5 +239,15 @@ export class UploadController {
       this.logger.error(`Unable to read image version - error: ${error}`)
     }
     return version
+  }
+
+  /**
+   * Fire-and-forget: triggered by sbom-generator when a scan finishes.
+   * Links the SBOM report bucket path to the matching release artifact.
+   */
+  @EventPattern(SbomTopicsEmit.SCAN_COMPLETED)
+  async onScanCompleted(@RpcPayload() event: ScanCompletedEventDto): Promise<void> {
+    this.logger.log(`Received SCAN_COMPLETED event for scanId=${event.scanId}, success=${event.success}`);
+    await this.releasesService.linkSbomReport(event.scanId, event.reportBucketPath);
   }
 }
