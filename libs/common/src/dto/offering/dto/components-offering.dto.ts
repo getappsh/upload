@@ -86,6 +86,16 @@ export class ReleaseOfferingDto {
   @Type(() => PlatformDeviceTypeTreeDto)
   hierarchyTrees: PlatformDeviceTypeTreeDto[];
 
+  @ApiProperty({ 
+    type: [String], 
+    description: "Array of catalog IDs of releases that directly depend on this release",
+    required: false
+  })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  dependedOnBy?: string[];
+
   toString() {
     return JSON.stringify(this);
   }
@@ -119,12 +129,10 @@ export class DeviceComponentsOfferingDto {
 
   @ApiProperty({ 
     type: () => [RestrictionDto],
-    required: false,
     description: 'List of applicable restrictions for the device based on device ID, device type, OS, and other metadata'
   })
   @IsArray()
-  @IsOptional()
-  restrictions?: RestrictionDto[]
+  restrictions: RestrictionDto[]
 
 
   toString() {

@@ -346,6 +346,7 @@ export class ReleaseService implements OnModuleInit {
     artifactEntity.isInstallationFile = artifact.isInstallationFile;
     artifactEntity.arguments = artifact.arguments;
     artifactEntity.isExecutable = artifact.isExecutable;
+    artifactEntity.enableSbomScan = artifact.enableSbomScan ?? true;
 
     const res = new SetReleaseArtifactResDto();
     const upsertOptions: UpsertOptions<ReleaseArtifactEntity> = { conflictPaths: [] };
@@ -357,6 +358,7 @@ export class ReleaseService implements OnModuleInit {
         // TODO consider adding version id to object key to avoid overwriting same version of other branches
         objectKey: `${artifact.projectId}/${artifact.version}`,
         userId: 'release',
+        enableSbomScan: artifact.enableSbomScan ?? true,
       } as CreateFileUploadUrlDto
       const upload = await this.fileUploadService.createFileUploadUrl(uploadDto);
       artifactEntity.fileUpload = { id: upload.id } as unknown as FileUploadEntity;
@@ -381,7 +383,12 @@ export class ReleaseService implements OnModuleInit {
     await this.updateTotalSize(artifact.projectId, artifact.version);
 
     if (artifact.type === ArtifactTypeEnum.DOCKER_IMAGE) {
-      this.refreshReleaseState(artifact)
+      this.refreshReleaseState(artifact);
+      if (artifact.enableSbomScan !== false) {
+        this.fileUploadService.triggerDockerSbomScan(artifact.dockerImageUrl, res.artifactId).catch(err => {
+          this.logger.warn(`SBOM scan trigger failed for docker artifact (non-critical): ${err?.message}`);
+        });
+      }
     }
 
     return res;
@@ -415,6 +422,11 @@ export class ReleaseService implements OnModuleInit {
         await this.onFileDelete(artifact.fileUpload);
       }
       await this.artifactRepo.delete({ id: params.artifactId })
+    }
+
+    // If a SBOM scan was associated, request its deletion/cancellation (fire-and-forget)
+    if (artifact.sbomScanId) {
+      this.fileUploadService.triggerSbomScanDelete(artifact.sbomScanId);
     }
 
     return "Release Artifact deleted"
@@ -587,14 +599,18 @@ export class ReleaseService implements OnModuleInit {
     this.logger.log(`Release: ${params.version} for project: ${params.projectId} dependencies released: ${dependenciesReleased} (if exists)`);
 
     const installationArtifacts = release.artifacts.filter((artifact) => artifact?.isInstallationFile);
-    const fileUploaded = installationArtifacts?.length > 0 && await this.fileUploadService
-      .areFilesUploaded(
-        installationArtifacts
-          .filter((artifact) => artifact?.type === ArtifactTypeEnum.FILE)
-          .map((artifact) => artifact?.fileUpload?.id)
-      );
+    const fileInstallationArtifacts = installationArtifacts.filter((artifact) => artifact?.type === ArtifactTypeEnum.FILE);
+    const dockerInstallationArtifacts = installationArtifacts.filter((artifact) => artifact?.type === ArtifactTypeEnum.DOCKER_IMAGE);
 
-    this.logger.log(`Release: ${params.version} for project: ${params.projectId} has ${installationArtifacts.length} installation files and they are ready: ${fileUploaded}`);
+    // If there are file installation artifacts, ALL of them must be fully uploaded.
+    // If there are no file installation artifacts, fall back to checking docker images are present (they're always ready once added).
+    const fileUploaded = installationArtifacts.length > 0 && (
+      fileInstallationArtifacts.length > 0
+        ? await this.fileUploadService.areFilesUploaded(fileInstallationArtifacts.map((artifact) => artifact?.fileUpload?.id))
+        : dockerInstallationArtifacts.length > 0
+    );
+
+    this.logger.log(`Release: ${params.version} for project: ${params.projectId} has ${installationArtifacts.length} installation artifacts (${fileInstallationArtifacts.length} files, ${dockerInstallationArtifacts.length} docker) and they are ready: ${fileUploaded}`);
 
     this.logger.debug(`Release: ${params.version} for project: ${params.projectId}, status: ${release.status}, regulationsCompliant: ${regulationsCompliant}, dependenciesReleased: ${dependenciesReleased}, fileUploaded: ${fileUploaded}`);
 
@@ -1188,5 +1204,25 @@ export class ReleaseService implements OnModuleInit {
       this.logger.error(`Error generating deployment report: ${error.message}`);
       throw error;
     }
+  }
+
+  /**
+   * Links the SBOM report bucket path to the artifact identified by the scan ID.
+   * Called when sbom-generator emits SCAN_COMPLETED.
+   */
+  async linkSbomReport(scanId: string, reportBucketPath: string | null): Promise<void> {
+    if (!reportBucketPath) {
+      this.logger.warn(`SBOM scan ${scanId} completed without a report path (scan failed) — skipping link`);
+      return;
+    }
+
+    const artifact = await this.artifactRepo.findOne({ where: { sbomScanId: scanId } });
+    if (!artifact) {
+      this.logger.warn(`No artifact found for sbomScanId=${scanId} — cannot link report`);
+      return;
+    }
+
+    await this.artifactRepo.update({ id: artifact.id }, { sbomReportPath: reportBucketPath });
+    this.logger.log(`Linked SBOM report ${reportBucketPath} to artifact ${artifact.id}`);
   }
 }

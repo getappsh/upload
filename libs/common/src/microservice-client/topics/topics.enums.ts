@@ -46,6 +46,8 @@ export const UploadTopics = {
     IMPORT_RELEASE: `getapp-upload.import-release${region}`,
     // Deployment Report
     GET_DEPLOYMENT_REPORT: `getapp-upload.get-deployment-report${region}`,
+    // Settings
+    GET_SBOM_ENABLED: `getapp-upload.get-sbom-enabled${region}`,
 
 } as const
 
@@ -92,6 +94,7 @@ export const OfferingTopicsEmit = {
     COMPONENT_UPLOAD_EVENT: `getapp-offering.component-upload-event${region}`,
     RELEASE_CHANGED_EVENT: `getapp-offering.release-changed-event${region}`,
     OFFERING_PUSH: `getapp-offering.push${region}`,
+    OFFERING_UNPUSH: `getapp-offering.unpush${region}`,
     DEVICE_SOFTWARE_EVENT: `getapp-offering.device.software-event${region}`,
     DEVICE_MAP_EVENT: `getapp-offering.device.map-event${region}`,
 }
@@ -159,6 +162,10 @@ export const ProjectManagementTopics = {
     CREATE_LABEL: `getapp-project-management.create-label${region}`,
     UPDATE_LABEL: `getapp-project-management.update-label${region}`,
     DELETE_LABEL: `getapp-project-management.delete-label${region}`,
+
+    // Deployment Report
+    GET_SYSTEM_WIDE_DEPLOYMENT_REPORT: `getapp-project-management.get-system-wide-deployment-report${region}`,
+    GET_PROJECT_DEPLOYMENT_REPORT: `getapp-project-management.get-project-deployment-report${region}`,
 
     CHECK_HEALTH: `getapp-project-management.check-health${region}`
 } as const
@@ -230,6 +237,8 @@ export const DeviceTopics = {
     LIST_PENDING_VERSIONS: `getapp-device.pending-versions.list${region}`,
     // Device Restrictions
     GET_DEVICE_RESTRICTIONS: `getapp-device.get-device-restrictions${region}`,
+    // OS
+    GET_ALL_OS: `getapp-device.get-all-os${region}`,
 } as const
 
 export const DeviceTopicsEmit = {
@@ -290,4 +299,18 @@ export const DevicesHierarchyTopics = {
 export const DeviceBugReportTopics = {
     NEW_BUG_REPORT: `getapp-device.bug-report.new${region}`,
     GET_BUG_REPORT: `getapp-device.bug-report.get${region}`,
+} as const
+
+export const SbomTopics = {
+    SCAN_REQUEST: `getapp-sbom-generator.scan.request${region}`,
+    GET_SCAN_STATUS: `getapp-sbom-generator.scan.status${region}`,
+    GET_SCAN_RESULT: `getapp-sbom-generator.scan.result${region}`,
+    GET_SCANS: `getapp-sbom-generator.scan.list${region}`,
+    DELETE_SCAN: `getapp-sbom-generator.scan.delete${region}`,
+    CHECK_HEALTH: `getapp-sbom-generator.check-health${region}`,
+} as const
+
+export const SbomTopicsEmit = {
+    SCAN_FILE: `getapp-sbom-generator.scan.file${region}`,
+    SCAN_COMPLETED: `getapp-sbom-generator.scan.completed${region}`,
 } as const
