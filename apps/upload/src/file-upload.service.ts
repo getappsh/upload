@@ -555,8 +555,7 @@ export class FileUploadService implements OnModuleInit {
         a.fileUpload &&
         (
           a.fileUpload.status === FileUPloadStatusEnum.UPLOADED ||
-          (a.fileUpload.status === FileUPloadStatusEnum.REMOVED &&
-            a.fileUpload.error?.startsWith(FileUploadService.STORAGE_MISSING_ERROR_PREFIX))
+          a.fileUpload.status === FileUPloadStatusEnum.REMOVED 
         ),
     );
 
@@ -619,8 +618,7 @@ export class FileUploadService implements OnModuleInit {
               );
             }
 
-          } else if (exists && fileUpload.status === FileUPloadStatusEnum.REMOVED &&
-            fileUpload.error?.startsWith(FileUploadService.STORAGE_MISSING_ERROR_PREFIX)) {
+          } else if (exists && fileUpload.status === FileUPloadStatusEnum.REMOVED ) {
             // Object is back — clear the storage error.
             this.logger.log(
               `Storage object restored for artifact ${artifact.id} ` +
