@@ -1,4 +1,4 @@
-import { FileUploadEntity, FileUPloadStatusEnum, ReleaseArtifactEntity } from "@app/common/database/entities";
+import { FileUploadEntity, FileUPloadStatusEnum, ReleaseArtifactEntity, ReleaseEntity, ReleaseStatusEnum, ArtifactTypeEnum } from "@app/common/database/entities";
 import { CreateFileUploadUrlDto, FileUploadUrlDto, UpdateFileUploadDto } from "@app/common/dto/upload";
 import { BadRequestException, ForbiddenException, Inject, Injectable, Logger, NotFoundException, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -31,6 +31,7 @@ export class FileUploadService implements OnModuleInit {
     private readonly fileProcessingService: FileProcessingService,
     @InjectRepository(FileUploadEntity) private readonly uploadRepo: Repository<FileUploadEntity>,
     @InjectRepository(ReleaseArtifactEntity) private readonly artifactRepo: Repository<ReleaseArtifactEntity>,
+    @InjectRepository(ReleaseEntity) private readonly releaseRepo: Repository<ReleaseEntity>,
     private readonly httpService: HttpService,
     @Inject(MicroserviceName.SBOM_GENERATOR_SERVICE) private readonly sbomClient: MicroserviceClient,
   ) { }
@@ -505,8 +506,189 @@ export class FileUploadService implements OnModuleInit {
   private async syncDB() {
     this.logger.log('Syncing DB with Minio');
     await this.syncUploadedFiles();
+    await this.syncArtifactsStorageStatus();
 
     this.logger.log('DB Sync finished');
+  }
+
+  /**
+   * A recognisable prefix stored in file_upload.error when the object is
+   * missing from MinIO.  The prefix is used to distinguish storage errors
+   * set by this sync routine from any other error so we can auto-recover
+   * when the storage is restored.
+   */
+  private static readonly STORAGE_MISSING_ERROR_PREFIX = '[storage-sync] ';
+
+  /**
+   * For every FILE-type release artifact that has a linked file_upload record,
+   * verify that the corresponding object actually exists in MinIO.
+   *
+   * Missing object  → set file_upload status=ERROR with a tagged error message;
+   *                   if the owning release was RELEASED, demote it to IN_REVIEW.
+   *
+   * Object restored → clear the storage error from file_upload and restore
+   *                   status=UPLOADED; if every file artifact of that release
+   *                   is now healthy and the release has a releasedAt date and
+   *                   is currently IN_REVIEW, promote it back to RELEASED.
+   */
+  private async syncArtifactsStorageStatus(): Promise<void> {
+    this.logger.log('Syncing artifact storage status');
+
+    // Load only FILE-type artifacts that have a linked file_upload.  Eager-load
+    // fileUpload.status/objectKey and release.status/releasedAt so we can act
+    // without extra round-trips.
+    const artifacts = await this.artifactRepo.find({
+      where: { type: ArtifactTypeEnum.FILE },
+      relations: ['fileUpload', 'release'],
+      select: {
+        id: true,
+        type: true,
+        fileUpload: { id: true, objectKey: true, bucketName: true, status: true, error: true },
+        release: { catalogId: true, status: true, releasedAt: true },
+      },
+    });
+
+    // Only consider artifacts whose file_upload is in a terminal "good" state
+    // (UPLOADED) or our own tagged removed state.  Skip PENDING/UPLOADING/other.
+    const relevant = artifacts.filter(
+      a =>
+        a.fileUpload &&
+        (
+          a.fileUpload.status === FileUPloadStatusEnum.UPLOADED ||
+          (a.fileUpload.status === FileUPloadStatusEnum.REMOVED &&
+            a.fileUpload.error?.startsWith(FileUploadService.STORAGE_MISSING_ERROR_PREFIX))
+        ),
+    );
+
+    if (relevant.length === 0) {
+      this.logger.log('No relevant artifacts to check for storage status');
+      return;
+    }
+
+    this.logger.log(`Checking MinIO presence for ${relevant.length} file artifact(s)`);
+
+    // Check MinIO in a bounded concurrency batch.
+    const batchSize = 10;
+    for (let i = 0; i < relevant.length; i += batchSize) {
+      const batch = relevant.slice(i, i + batchSize);
+
+      const stats = await Promise.all(
+        batch.map(a =>
+          this.minioClient
+            .getObjectStat(a.fileUpload!.bucketName || this.bucketName, a.fileUpload!.objectKey)
+            .catch(() => null),
+        ),
+      );
+
+      // Collect release IDs that may need a status update after processing the batch.
+      const releasesToRecheck = new Set<string>();
+
+      await Promise.all(
+        batch.map(async (artifact, idx) => {
+          const exists = stats[idx] !== null && stats[idx] !== undefined;
+          const fileUpload = artifact.fileUpload!;
+          const release = artifact.release;
+
+          if (!exists && fileUpload.status === FileUPloadStatusEnum.UPLOADED) {
+            // Object disappeared from MinIO — flag the file upload.
+            this.logger.warn(
+              `Storage object missing for artifact ${artifact.id} ` +
+              `(objectKey: ${fileUpload.objectKey}). Flagging as ERROR.`,
+            );
+            await this.uploadRepo.update(
+              { id: fileUpload.id },
+              {
+                status: FileUPloadStatusEnum.REMOVED,
+                progress: 0,
+                error:
+                  `${FileUploadService.STORAGE_MISSING_ERROR_PREFIX}` +
+                  `File not found in object storage during sync check.`,
+              },
+            );
+
+            // Demote the release from RELEASED → IN_REVIEW so it cannot be
+            // deployed to devices until the storage issue is resolved.
+            if (release.status === ReleaseStatusEnum.RELEASED) {
+              this.logger.warn(
+                `Demoting release ${release.catalogId} from RELEASED to IN_REVIEW ` +
+                `because artifact ${artifact.id} is missing from storage.`,
+              );
+              await this.releaseRepo.update(
+                { catalogId: release.catalogId },
+                { status: ReleaseStatusEnum.IN_REVIEW },
+              );
+            }
+
+          } else if (exists && fileUpload.status === FileUPloadStatusEnum.REMOVED &&
+            fileUpload.error?.startsWith(FileUploadService.STORAGE_MISSING_ERROR_PREFIX)) {
+            // Object is back — clear the storage error.
+            this.logger.log(
+              `Storage object restored for artifact ${artifact.id} ` +
+              `(objectKey: ${fileUpload.objectKey}). Clearing storage error.`,
+            );
+            await this.uploadRepo.update(
+              { id: fileUpload.id },
+              { status: FileUPloadStatusEnum.UPLOADED, error: null, progress: 100 },
+            );
+
+            // Queue the owning release for a full health re-check.
+            if (release.releasedAt && release.status === ReleaseStatusEnum.IN_REVIEW) {
+              releasesToRecheck.add(release.catalogId);
+            }
+          }
+        }),
+      );
+
+      // For each candidate release, restore RELEASED only if every FILE
+      // artifact is healthy (UPLOADED) after our updates this cycle.
+      for (const catalogId of releasesToRecheck) {
+        await this.maybeRestoreReleasedStatus(catalogId);
+      }
+    }
+
+    this.logger.log('Artifact storage sync finished');
+  }
+
+  /**
+   * Promotes a release back to RELEASED if — after all storage fixes — every
+   * FILE artifact's file_upload is in UPLOADED status.
+   * Only acts when the release still has IN_REVIEW status and a releasedAt
+   * timestamp (i.e. it was previously released).
+   */
+  private async maybeRestoreReleasedStatus(catalogId: string): Promise<void> {
+    const release = await this.releaseRepo.findOne({
+      where: { catalogId },
+      select: { catalogId: true, status: true, releasedAt: true },
+    });
+
+    if (!release || release.status !== ReleaseStatusEnum.IN_REVIEW || !release.releasedAt) {
+      return;
+    }
+
+    // Check all FILE artifacts for this release.
+    const releaseArtifacts = await this.artifactRepo.find({
+      where: { release: { catalogId }, type: ArtifactTypeEnum.FILE },
+      relations: ['fileUpload'],
+      select: { id: true, fileUpload: { id: true, status: true, error: true } },
+    });
+
+    const allHealthy = releaseArtifacts.every(
+      a =>
+        !a.fileUpload ||
+        (
+          a.fileUpload.status === FileUPloadStatusEnum.UPLOADED &&
+          !a.fileUpload.error?.startsWith(FileUploadService.STORAGE_MISSING_ERROR_PREFIX) &&
+          a.fileUpload.status !== FileUPloadStatusEnum.REMOVED
+        ),
+    );
+
+    if (allHealthy) {
+      this.logger.log(
+        `All artifacts restored for release ${catalogId}. ` +
+        `Promoting back to RELEASED.`,
+      );
+      await this.releaseRepo.update({ catalogId }, { status: ReleaseStatusEnum.RELEASED });
+    }
   }
 
 
