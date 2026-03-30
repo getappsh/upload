@@ -1,9 +1,9 @@
 import { Injectable, UnauthorizedException, Inject, Logger } from '@nestjs/common';
-import { RuleService } from '@app/common/rules/services';
 import { CreatePolicyDto, UpdateRuleDto, PolicyQueryDto, CreateRuleFieldDto } from '@app/common/rules/dto';
 import { RuleType } from '@app/common/rules/enums/rule.enums';
 import { PROJECT_ACCESS_SERVICE, ProjectAccessService } from '@app/common/utils/project-access';
 import { RuleValidationService } from '@app/common/rules/services/rule-validation.service';
+import { RuleService } from '@app/common/rules/services';
 
 @Injectable()
 export class PolicyService {
@@ -78,12 +78,7 @@ export class PolicyService {
    * Lists all policies with optional filters
    */
   async listPolicies(query: PolicyQueryDto, projectIds?: number[]) {
-    // Force type to be policy if not already set
-    if (!query.type) {
-      query.type = RuleType.POLICY;
-    }
-    
-    const rules = await this.ruleService.findAll(query, projectIds);
+    const rules = await this.ruleService.findAll({ ...query, type: RuleType.POLICY }, projectIds);
     return rules.map(rule => this.ruleService.ruleEntityToDefinition(rule));
   }
 
@@ -104,12 +99,7 @@ export class PolicyService {
    * Gets all policies associated with a specific release by catalog ID
    */
   async getPoliciesForRelease(catalogId: string) {
-    const query: PolicyQueryDto = {
-      releaseId: catalogId,
-      type: RuleType.POLICY,
-    };
-    
-    const rules = await this.ruleService.findAll(query);
+    const rules = await this.ruleService.findAll({ releaseId: catalogId, type: RuleType.POLICY });
     return rules.map(rule => this.ruleService.ruleEntityToDefinition(rule));
   }
 
