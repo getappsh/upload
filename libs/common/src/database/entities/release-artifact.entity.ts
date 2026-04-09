@@ -8,7 +8,8 @@ import { FileUploadEntity } from './file-upload.entity';
 
 @Index('unique_release_fileupload', ['release', 'fileUpload'], { unique: true, where: "file_upload_id IS NOT NULL and type = 'file'" })
 @Index('unique_release_docker_image', ['release', 'dockerImageUrl'], { unique: true, where: "docker_image_url IS NOT NULL and type = 'docker_image'" })
-@Check("((file_upload_id IS NOT NULL and type = 'file') OR (docker_image_url IS NOT NULL and type = 'docker_image'))")
+@Index('unique_release_package', ['release', 'artifactName', 'type'], { unique: true, where: "file_upload_id IS NULL AND docker_image_url IS NULL" })
+@Check("((file_upload_id IS NOT NULL AND type = 'file') OR (docker_image_url IS NOT NULL AND type = 'docker_image') OR (file_upload_id IS NULL AND docker_image_url IS NULL))")
 export class ReleaseArtifactEntity extends BaseEntity {
   
   @Column({ name: 'artifact_name', nullable: true })
@@ -49,5 +50,8 @@ export class ReleaseArtifactEntity extends BaseEntity {
 
   @Column({ name: 'sbom_report_path', type: 'varchar', nullable: true, default: null })
   sbomReportPath?: string | null;
+
+  @Column({ name: 'package_version', type: 'varchar', nullable: true, default: null })
+  packageVersion?: string | null;
 
 }
