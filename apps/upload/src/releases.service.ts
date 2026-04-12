@@ -60,11 +60,11 @@ export class ReleaseService implements OnModuleInit {
   }
 
   /**
-   * Check if user has permission to edit an imported release that is in released status
+   * Check if user has permission to edit a release that is in released or error status
    */
   private checkReadonlyReleasePermission(release: ReleaseEntity): void {
-    // If release is in released status, it's readonly
-    if (release.status === ReleaseStatusEnum.RELEASED) {
+    // If release is in released or error status, it's readonly
+    if (release.status === ReleaseStatusEnum.RELEASED || release.status === ReleaseStatusEnum.ERROR) {
       const user = this.cls.get('user');
       
       // Use PermissionsService to check for the special edit-released-release role
@@ -77,7 +77,7 @@ export class ReleaseService implements OnModuleInit {
           `(project: ${release.project?.id || 'unknown'}, version: ${release.version})`
         );
         throw new ForbiddenException(
-          'This release in released status and is read-only. ' +
+          `This release is in ${release.status} status and is read-only. ` +
           'You need the "edit-released-release" permission to modify it.'
         );
       }
@@ -112,7 +112,11 @@ export class ReleaseService implements OnModuleInit {
     releaseEntity.metadata = normalizedMetadata;
     if (dto?.isDraft === true) {
       releaseEntity.status = ReleaseStatusEnum.DRAFT
-    } else if (dto?.isDraft === false) {
+    } else if (dto?.isDraft === false &&
+        releaseEntity.status !== ReleaseStatusEnum.ERROR &&
+        releaseEntity.status !== ReleaseStatusEnum.RELEASED) {
+      // Do not overwrite ERROR or RELEASED status — those are managed by
+      // refreshReleaseState and the storage-sync routine respectively.
       releaseEntity.status = ReleaseStatusEnum.IN_REVIEW
     }
     releaseEntity.requiredRegulationsCount = await this.regulationRepo.count({ where: { project: { id: dto.projectId } } })
@@ -455,7 +459,7 @@ export class ReleaseService implements OnModuleInit {
 
   private async onFileCreate(fileUpload: FileUploadEntity) {
     const release = await this.releaseRepo.findOne({
-      select: { project: { id: true } },
+      select: { project: { id: true }, catalogId: true, status: true, version: true },
       where: { artifacts: { fileUpload: { objectKey: fileUpload.objectKey } } },
       relations: { project: true }
     })
@@ -463,13 +467,18 @@ export class ReleaseService implements OnModuleInit {
       this.logger.debug(`onFileCreate: File is part of release: ${release.version}, of project: ${release.project.id}`);
       await this.updateTotalSize(release.project.id, release.version);
       this.refreshReleaseState({ projectId: release.project.id, version: release.version } as ReleaseParams);
+      if (release.status === ReleaseStatusEnum.ERROR) {
+        this.fileUploadService.maybeRestoreReleasedStatus(release.catalogId).catch(err =>
+          this.logger.warn(`Failed to check ERROR recovery for release ${release.catalogId}: ${err?.message}`)
+        );
+      }
     }
   }
 
 
   private async onFileDelete(fileUpload: FileUploadEntity) {
     const release = await this.releaseRepo.findOne({
-      select: { project: { id: true } },
+      select: { project: { id: true }, catalogId: true, status: true, version: true },
       where: { artifacts: { fileUpload: { objectKey: fileUpload.objectKey } } },
       relations: { project: true }
     })
@@ -477,6 +486,11 @@ export class ReleaseService implements OnModuleInit {
       this.logger.debug(`onFileDelete: File is part of release: ${release.version}, of project: ${release.project.id}`);
       await this.updateTotalSize(release.project.id, release.version);
       this.refreshReleaseState({ projectId: release.project.id, version: release.version } as ReleaseParams);
+      if (release.status === ReleaseStatusEnum.ERROR) {
+        this.fileUploadService.maybeRestoreReleasedStatus(release.catalogId).catch(err =>
+          this.logger.warn(`Failed to check ERROR recovery for release ${release.catalogId}: ${err?.message}`)
+        );
+      }
     }
   }
 
@@ -564,6 +578,14 @@ export class ReleaseService implements OnModuleInit {
     const release = await this.getReleaseEntity(params).catch(() => { });
     if (!release) return;
 
+    // ERROR status is owned by the storage-sync routine and can only be resolved
+    // via the sync loop or by a user with "edit-released-release" permission.
+    // refreshReleaseState must never overwrite it.
+    if (release.status === ReleaseStatusEnum.ERROR) {
+      this.logger.debug(`Skipping release state refresh for ${params.version} — release is in ERROR state (storage issue).`);
+      return;
+    }
+
     const regulations = await this.regulationRepo.find({ where: { project: { id: params.projectId } } });
     const statuses = await this.regulationService.getVersionRegulationsStatuses(params);
 
@@ -602,29 +624,53 @@ export class ReleaseService implements OnModuleInit {
     const fileInstallationArtifacts = installationArtifacts.filter((artifact) => artifact?.type === ArtifactTypeEnum.FILE);
     const dockerInstallationArtifacts = installationArtifacts.filter((artifact) => artifact?.type === ArtifactTypeEnum.DOCKER_IMAGE);
 
+    const fileIds = fileInstallationArtifacts.map(a => a?.fileUpload?.id).filter((id): id is number => id != null);
+
+    // Verify files exist in the bucket and sync DB status for any that are missing.
+    // We do this before the areFilesUploaded check so the DB reflects reality.
+    const storageMissing = fileIds.length > 0 && await this.fileUploadService.syncAndCheckMissingFiles(fileIds);
+
     // If there are file installation artifacts, ALL of them must be fully uploaded.
     // If there are no file installation artifacts, fall back to checking docker images are present (they're always ready once added).
     const fileUploaded = installationArtifacts.length > 0 && (
       fileInstallationArtifacts.length > 0
-        ? await this.fileUploadService.areFilesUploaded(fileInstallationArtifacts.map((artifact) => artifact?.fileUpload?.id))
+        ? await this.fileUploadService.areFilesUploaded(fileIds)
         : dockerInstallationArtifacts.length > 0
     );
 
     this.logger.log(`Release: ${params.version} for project: ${params.projectId} has ${installationArtifacts.length} installation artifacts (${fileInstallationArtifacts.length} files, ${dockerInstallationArtifacts.length} docker) and they are ready: ${fileUploaded}`);
 
-    this.logger.debug(`Release: ${params.version} for project: ${params.projectId}, status: ${release.status}, regulationsCompliant: ${regulationsCompliant}, dependenciesReleased: ${dependenciesReleased}, fileUploaded: ${fileUploaded}`);
+    this.logger.debug(`Release: ${params.version} for project: ${params.projectId}, status: ${release.status}, regulationsCompliant: ${regulationsCompliant}, dependenciesReleased: ${dependenciesReleased}, fileUploaded: ${fileUploaded}, storageMissing: ${storageMissing}`);
 
     if ((!regulationsCompliant || (!dependenciesReleased && !fileUploaded)) && release.status === ReleaseStatusEnum.RELEASED) {
-      this.logger.log(`Setting release status to in_review for project: ${params.projectId}, version: ${params.version}`);
-      const res = await this.releaseRepo.update({ version: params.version, project: { id: params.projectId } }, { status: ReleaseStatusEnum.IN_REVIEW, releasedAt: null });
-      if (res.affected > 0) {
-        this.updateLatestForProject(params.projectId);
-        release?.dependentReleases?.forEach(dep => {
-          this.logger.verbose(`Refreshing dependent release state, project: ${dep.project.id}, version: ${dep.version}`);
-          this.refreshReleaseState({ version: dep.version, projectIdentifier: dep.project.id, projectId: dep.project.id })
-        });
-
-        changeStatus = ReleaseStatusEnum.IN_REVIEW
+      if (storageMissing) {
+        this.logger.warn(`Setting release status to error for project: ${params.projectId}, version: ${params.version} — storage artifacts are missing`);
+        const res = await this.releaseRepo.update(
+          { version: params.version, project: { id: params.projectId }, status: ReleaseStatusEnum.RELEASED },
+          { status: ReleaseStatusEnum.ERROR },
+        );
+        if (res.affected > 0) {
+          this.updateLatestForProject(params.projectId);
+          release?.dependentReleases?.forEach(dep => {
+            this.logger.verbose(`Refreshing dependent release state, project: ${dep.project.id}, version: ${dep.version}`);
+            this.refreshReleaseState({ version: dep.version, projectIdentifier: dep.project.id, projectId: dep.project.id })
+          });
+          changeStatus = ReleaseStatusEnum.ERROR;
+        }
+      } else {
+        this.logger.log(`Setting release status to in_review for project: ${params.projectId}, version: ${params.version}`);
+        const res = await this.releaseRepo.update(
+          { version: params.version, project: { id: params.projectId }, status: ReleaseStatusEnum.RELEASED },
+          { status: ReleaseStatusEnum.IN_REVIEW, releasedAt: null },
+        );
+        if (res.affected > 0) {
+          this.updateLatestForProject(params.projectId);
+          release?.dependentReleases?.forEach(dep => {
+            this.logger.verbose(`Refreshing dependent release state, project: ${dep.project.id}, version: ${dep.version}`);
+            this.refreshReleaseState({ version: dep.version, projectIdentifier: dep.project.id, projectId: dep.project.id })
+          });
+          changeStatus = ReleaseStatusEnum.IN_REVIEW;
+        }
       }
 
     } else if (regulationsCompliant && release.status === ReleaseStatusEnum.IN_REVIEW && (dependenciesReleased || fileUploaded)) {
