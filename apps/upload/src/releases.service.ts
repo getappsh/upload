@@ -112,9 +112,11 @@ export class ReleaseService implements OnModuleInit {
     releaseEntity.metadata = normalizedMetadata;
     if (dto?.isDraft === true) {
       releaseEntity.status = ReleaseStatusEnum.DRAFT
-    } else if (dto?.isDraft === false && releaseEntity.status !== ReleaseStatusEnum.ERROR) {
-      // Do not overwrite ERROR status — that state is owned by the storage-sync
-      // routine and can only be resolved by re-uploading or deleting the artifact.
+    } else if (dto?.isDraft === false &&
+        releaseEntity.status !== ReleaseStatusEnum.ERROR &&
+        releaseEntity.status !== ReleaseStatusEnum.RELEASED) {
+      // Do not overwrite ERROR or RELEASED status — those are managed by
+      // refreshReleaseState and the storage-sync routine respectively.
       releaseEntity.status = ReleaseStatusEnum.IN_REVIEW
     }
     releaseEntity.requiredRegulationsCount = await this.regulationRepo.count({ where: { project: { id: dto.projectId } } })
@@ -457,7 +459,7 @@ export class ReleaseService implements OnModuleInit {
 
   private async onFileCreate(fileUpload: FileUploadEntity) {
     const release = await this.releaseRepo.findOne({
-      select: { project: { id: true }, catalogId: true, status: true },
+      select: { project: { id: true }, catalogId: true, status: true, version: true },
       where: { artifacts: { fileUpload: { objectKey: fileUpload.objectKey } } },
       relations: { project: true }
     })
@@ -476,7 +478,7 @@ export class ReleaseService implements OnModuleInit {
 
   private async onFileDelete(fileUpload: FileUploadEntity) {
     const release = await this.releaseRepo.findOne({
-      select: { project: { id: true }, catalogId: true, status: true },
+      select: { project: { id: true }, catalogId: true, status: true, version: true },
       where: { artifacts: { fileUpload: { objectKey: fileUpload.objectKey } } },
       relations: { project: true }
     })
@@ -622,32 +624,53 @@ export class ReleaseService implements OnModuleInit {
     const fileInstallationArtifacts = installationArtifacts.filter((artifact) => artifact?.type === ArtifactTypeEnum.FILE);
     const dockerInstallationArtifacts = installationArtifacts.filter((artifact) => artifact?.type === ArtifactTypeEnum.DOCKER_IMAGE);
 
+    const fileIds = fileInstallationArtifacts.map(a => a?.fileUpload?.id).filter((id): id is number => id != null);
+
+    // Verify files exist in the bucket and sync DB status for any that are missing.
+    // We do this before the areFilesUploaded check so the DB reflects reality.
+    const storageMissing = fileIds.length > 0 && await this.fileUploadService.syncAndCheckMissingFiles(fileIds);
+
     // If there are file installation artifacts, ALL of them must be fully uploaded.
     // If there are no file installation artifacts, fall back to checking docker images are present (they're always ready once added).
     const fileUploaded = installationArtifacts.length > 0 && (
       fileInstallationArtifacts.length > 0
-        ? await this.fileUploadService.areFilesUploaded(fileInstallationArtifacts.map((artifact) => artifact?.fileUpload?.id))
+        ? await this.fileUploadService.areFilesUploaded(fileIds)
         : dockerInstallationArtifacts.length > 0
     );
 
     this.logger.log(`Release: ${params.version} for project: ${params.projectId} has ${installationArtifacts.length} installation artifacts (${fileInstallationArtifacts.length} files, ${dockerInstallationArtifacts.length} docker) and they are ready: ${fileUploaded}`);
 
-    this.logger.debug(`Release: ${params.version} for project: ${params.projectId}, status: ${release.status}, regulationsCompliant: ${regulationsCompliant}, dependenciesReleased: ${dependenciesReleased}, fileUploaded: ${fileUploaded}`);
+    this.logger.debug(`Release: ${params.version} for project: ${params.projectId}, status: ${release.status}, regulationsCompliant: ${regulationsCompliant}, dependenciesReleased: ${dependenciesReleased}, fileUploaded: ${fileUploaded}, storageMissing: ${storageMissing}`);
 
     if ((!regulationsCompliant || (!dependenciesReleased && !fileUploaded)) && release.status === ReleaseStatusEnum.RELEASED) {
-      this.logger.log(`Setting release status to in_review for project: ${params.projectId}, version: ${params.version}`);
-      const res = await this.releaseRepo.update(
-        { version: params.version, project: { id: params.projectId }, status: ReleaseStatusEnum.RELEASED },
-        { status: ReleaseStatusEnum.IN_REVIEW, releasedAt: null },
-      );
-      if (res.affected > 0) {
-        this.updateLatestForProject(params.projectId);
-        release?.dependentReleases?.forEach(dep => {
-          this.logger.verbose(`Refreshing dependent release state, project: ${dep.project.id}, version: ${dep.version}`);
-          this.refreshReleaseState({ version: dep.version, projectIdentifier: dep.project.id, projectId: dep.project.id })
-        });
-
-        changeStatus = ReleaseStatusEnum.IN_REVIEW
+      if (storageMissing) {
+        this.logger.warn(`Setting release status to error for project: ${params.projectId}, version: ${params.version} — storage artifacts are missing`);
+        const res = await this.releaseRepo.update(
+          { version: params.version, project: { id: params.projectId }, status: ReleaseStatusEnum.RELEASED },
+          { status: ReleaseStatusEnum.ERROR },
+        );
+        if (res.affected > 0) {
+          this.updateLatestForProject(params.projectId);
+          release?.dependentReleases?.forEach(dep => {
+            this.logger.verbose(`Refreshing dependent release state, project: ${dep.project.id}, version: ${dep.version}`);
+            this.refreshReleaseState({ version: dep.version, projectIdentifier: dep.project.id, projectId: dep.project.id })
+          });
+          changeStatus = ReleaseStatusEnum.ERROR;
+        }
+      } else {
+        this.logger.log(`Setting release status to in_review for project: ${params.projectId}, version: ${params.version}`);
+        const res = await this.releaseRepo.update(
+          { version: params.version, project: { id: params.projectId }, status: ReleaseStatusEnum.RELEASED },
+          { status: ReleaseStatusEnum.IN_REVIEW, releasedAt: null },
+        );
+        if (res.affected > 0) {
+          this.updateLatestForProject(params.projectId);
+          release?.dependentReleases?.forEach(dep => {
+            this.logger.verbose(`Refreshing dependent release state, project: ${dep.project.id}, version: ${dep.version}`);
+            this.refreshReleaseState({ version: dep.version, projectIdentifier: dep.project.id, projectId: dep.project.id })
+          });
+          changeStatus = ReleaseStatusEnum.IN_REVIEW;
+        }
       }
 
     } else if (regulationsCompliant && release.status === ReleaseStatusEnum.IN_REVIEW && (dependenciesReleased || fileUploaded)) {

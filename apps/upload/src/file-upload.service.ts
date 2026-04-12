@@ -129,6 +129,48 @@ export class FileUploadService implements OnModuleInit {
     return uploaded.length === ids.length
   }
 
+  /**
+   * Checks MinIO for each file upload ID to determine which files are actually
+   * present in the bucket.  For any file whose DB status is UPLOADED but is no
+   * longer in the bucket, the DB record is updated to REMOVED with the standard
+   * storage-sync error prefix so the rest of the system can react.
+   *
+   * Returns true if any file is missing from the bucket.
+   */
+  async syncAndCheckMissingFiles(ids: number[]): Promise<boolean> {
+    if (ids.length === 0) return false;
+
+    const files = await this.uploadRepo.find({
+      select: ['id', 'objectKey', 'bucketName', 'status'],
+      where: { id: In(ids) },
+    }).catch(err => { throw new Error(`File upload check failed: ${ids}, error: ${err}`) });
+
+    let anyMissing = false;
+
+    await Promise.all(files.map(async file => {
+      const bucket = file.bucketName || this.bucketName;
+      const stat = await this.minioClient.getObjectStat(bucket, file.objectKey).catch(() => null);
+      const existsInBucket = stat !== null && stat !== undefined;
+
+      if (!existsInBucket) {
+        anyMissing = true;
+        if (file.status !== FileUPloadStatusEnum.REMOVED) {
+          this.logger.warn(`syncAndCheckMissingFiles: object missing from bucket for file ${file.id} (${file.objectKey}). Updating DB.`);
+          await this.uploadRepo.update(
+            { id: file.id },
+            {
+              status: FileUPloadStatusEnum.REMOVED,
+              progress: 0,
+              error: `${FileUploadService.STORAGE_MISSING_ERROR_PREFIX}File not found in object storage during sync check.`,
+            },
+          );
+        }
+      }
+    }));
+
+    return anyMissing;
+  }
+
 
   async onFileCreate(callback: (file: FileUploadEntity) => void) {
     this.emitter.on("fileCreated", callback);
@@ -696,8 +738,7 @@ export class FileUploadService implements OnModuleInit {
         !a.fileUpload ||
         (
           a.fileUpload.status === FileUPloadStatusEnum.UPLOADED &&
-          !a.fileUpload.error?.startsWith(FileUploadService.STORAGE_MISSING_ERROR_PREFIX) &&
-          a.fileUpload.status !== FileUPloadStatusEnum.REMOVED
+          !a.fileUpload.error?.startsWith(FileUploadService.STORAGE_MISSING_ERROR_PREFIX)
         ),
     );
 
