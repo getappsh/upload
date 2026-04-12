@@ -523,13 +523,15 @@ export class FileUploadService implements OnModuleInit {
    * For every FILE-type release artifact that has a linked file_upload record,
    * verify that the corresponding object actually exists in MinIO.
    *
-   * Missing object  → set file_upload status=ERROR with a tagged error message;
-   *                   if the owning release was RELEASED, demote it to IN_REVIEW.
+   * Missing object  → set file_upload status=REMOVED with a tagged error message;
+   *                   if the owning release was RELEASED, demote it to ERROR so
+   *                   it requires "edit-released-release" permission to modify.
    *
-   * Object restored → clear the storage error from file_upload and restore
-   *                   status=UPLOADED; if every file artifact of that release
-   *                   is now healthy and the release has a releasedAt date and
-   *                   is currently IN_REVIEW, promote it back to RELEASED.
+   * Object restored → verify SHA256 of the restored object matches the stored
+   *                   value; if it matches, clear the storage error and restore
+   *                   status=UPLOADED, then promote the release back to RELEASED
+   *                   if every file artifact is healthy.  If SHA mismatches the
+   *                   release stays in ERROR and requires manual intervention.
    */
   private async syncArtifactsStorageStatus(): Promise<void> {
     this.logger.log('Syncing artifact storage status');
@@ -543,7 +545,7 @@ export class FileUploadService implements OnModuleInit {
       select: {
         id: true,
         type: true,
-        fileUpload: { id: true, objectKey: true, bucketName: true, status: true, error: true },
+        fileUpload: { id: true, objectKey: true, bucketName: true, status: true, error: true, sha256: true },
         release: { catalogId: true, status: true, releasedAt: true },
       },
     });
@@ -605,24 +607,43 @@ export class FileUploadService implements OnModuleInit {
               },
             );
 
-            // Demote the release from RELEASED → IN_REVIEW so it cannot be
-            // deployed to devices until the storage issue is resolved.
+            // Demote the release from RELEASED → ERROR so it cannot be
+            // deployed and is only editable by users with "edit-released-release".
             if (release.status === ReleaseStatusEnum.RELEASED) {
               this.logger.warn(
-                `Demoting release ${release.catalogId} from RELEASED to IN_REVIEW ` +
+                `Demoting release ${release.catalogId} from RELEASED to ERROR ` +
                 `because artifact ${artifact.id} is missing from storage.`,
               );
               await this.releaseRepo.update(
                 { catalogId: release.catalogId },
-                { status: ReleaseStatusEnum.IN_REVIEW },
+                { status: ReleaseStatusEnum.ERROR },
               );
             }
 
-          } else if (exists && fileUpload.status === FileUPloadStatusEnum.REMOVED ) {
-            // Object is back — clear the storage error.
+          } else if (exists && fileUpload.status === FileUPloadStatusEnum.REMOVED) {
+            // Object is back — verify SHA256 matches before clearing the error.
+            if (fileUpload.sha256) {
+              const bucket = fileUpload.bucketName || this.bucketName;
+              const currentSha = await this.calculateSha256FromBucket(bucket, fileUpload.objectKey).catch(err => {
+                this.logger.warn(`Could not compute SHA256 for restored object ${fileUpload.objectKey}: ${err?.message}`);
+                return null;
+              });
+              if (currentSha === null || currentSha !== fileUpload.sha256) {
+                this.logger.warn(
+                  `SHA256 mismatch for restored artifact ${artifact.id} ` +
+                  `(objectKey: ${fileUpload.objectKey}). ` +
+                  `Stored: ${fileUpload.sha256}, Actual: ${currentSha}. ` +
+                  `Object remains in error state — requires manual intervention ` +
+                  `by a user with "edit-released-release" permission.`,
+                );
+                return;
+              }
+            }
+
+            // SHA matches (or no stored SHA) — clear the storage error.
             this.logger.log(
               `Storage object restored for artifact ${artifact.id} ` +
-              `(objectKey: ${fileUpload.objectKey}). Clearing storage error.`,
+              `(objectKey: ${fileUpload.objectKey}). SHA256 verified. Clearing storage error.`,
             );
             await this.uploadRepo.update(
               { id: fileUpload.id },
@@ -630,7 +651,7 @@ export class FileUploadService implements OnModuleInit {
             );
 
             // Queue the owning release for a full health re-check.
-            if (release.releasedAt && release.status === ReleaseStatusEnum.IN_REVIEW) {
+            if (release.releasedAt && release.status === ReleaseStatusEnum.ERROR) {
               releasesToRecheck.add(release.catalogId);
             }
           }
@@ -650,16 +671,16 @@ export class FileUploadService implements OnModuleInit {
   /**
    * Promotes a release back to RELEASED if — after all storage fixes — every
    * FILE artifact's file_upload is in UPLOADED status.
-   * Only acts when the release still has IN_REVIEW status and a releasedAt
+   * Acts when the release has ERROR or IN_REVIEW status and a releasedAt
    * timestamp (i.e. it was previously released).
    */
-  private async maybeRestoreReleasedStatus(catalogId: string): Promise<void> {
+  async maybeRestoreReleasedStatus(catalogId: string): Promise<void> {
     const release = await this.releaseRepo.findOne({
       where: { catalogId },
       select: { catalogId: true, status: true, releasedAt: true },
     });
 
-    if (!release || release.status !== ReleaseStatusEnum.IN_REVIEW || !release.releasedAt) {
+    if (!release || (release.status !== ReleaseStatusEnum.ERROR && release.status !== ReleaseStatusEnum.IN_REVIEW) || !release.releasedAt) {
       return;
     }
 
