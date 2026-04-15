@@ -96,11 +96,26 @@ export class PolicyService {
   }
 
   /**
-   * Gets all policies associated with a specific release by catalog ID
+   * Gets all policies associated with a specific release by catalog ID.
+   * Used by the agent discovery flow (offering service).
+   *
+   * Push-policy visibility rules:
+   *  - isPush=true  & isActive=false → excluded (policy is disabled, don't deliver to agent)
+   *  - isPush=true  & isActive=true  → included but isActive overridden to false in the response
+   *                                    (agent receives it without treating it as a regular active policy)
+   *  - isPush=false                  → included as-is
    */
   async getPoliciesForRelease(catalogId: string) {
     const rules = await this.ruleService.findAll({ releaseId: catalogId, type: RuleType.POLICY });
-    return rules.map(rule => this.ruleService.ruleEntityToDefinition(rule));
+    return rules
+      .filter(rule => !(rule.isPush && !rule.isActive))
+      .map(rule => {
+        const definition = this.ruleService.ruleEntityToDefinition(rule);
+        if (rule.isPush && rule.isActive) {
+          definition.isActive = false;
+        }
+        return definition;
+      });
   }
 
   /**
