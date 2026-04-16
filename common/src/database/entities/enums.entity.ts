@@ -160,6 +160,7 @@ export enum ReleaseStatusEnum {
     APPROVED = 'approved',
     RELEASED = 'released',
     ARCHIVED = 'archived',
+    ERROR = 'error',
 }
 
 
@@ -172,7 +173,10 @@ export enum ArtifactTypeEnum {
 
 export enum ProjectType {
     PRODUCT = "product",
-    FORMATION = "formation",
+    APPLICATION = "application",
+    LIB = "lib",
+    BUNDLE = "bundle",
+    INFRA = "infra"
   }
 
 
