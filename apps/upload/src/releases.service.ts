@@ -211,12 +211,14 @@ export class ReleaseService implements OnModuleInit {
 
   async getRelease(params: ReleaseParams): Promise<DetailedReleaseDto> {
     this.logger.log(`Getting release for project: ${params.projectIdentifier}, version: ${params.version}`);
-    if (typeof params.projectIdentifier !== 'number') {
+    if (typeof params.projectIdentifier === 'string') {
       const project = await this.releaseRepo.manager.getRepository(ProjectEntity).findOneBy({ name: params.projectIdentifier });
       if (!project) {
         throw new NotFoundException(`Project not found: ${params.projectIdentifier}`);
       }
       params.projectId = project.id;
+    } else if (typeof params.projectIdentifier === 'number') {
+      params.projectId = params.projectIdentifier;
     }
     return this.getReleaseEntity(params).then((release) => {
       if (!release) {
