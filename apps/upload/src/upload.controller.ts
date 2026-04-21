@@ -245,9 +245,10 @@ export class UploadController {
    * Fire-and-forget: triggered by sbom-generator when a scan finishes.
    * Links the SBOM report bucket path to the matching release artifact.
    */
-  @EventPattern(SbomTopicsEmit.SCAN_COMPLETED)
+  @EventPattern(SbomTopicsEmit.SCAN_COMPLETE)
   async onScanCompleted(@RpcPayload() event: ScanCompletedEventDto): Promise<void> {
     this.logger.log(`Received SCAN_COMPLETED event for scanId=${event.scanId}, success=${event.success}`);
     await this.releasesService.linkSbomReport(event.scanId, event.reportBucketPath);
   }
 }
+  

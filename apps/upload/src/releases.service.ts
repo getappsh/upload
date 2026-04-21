@@ -184,7 +184,7 @@ export class ReleaseService implements OnModuleInit {
 
       await this.ruleReleaseRepo.save(ruleRelease);
       this.logger.log(`Linked default rule to release ${releaseCatalogId}`);
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Failed to link default rule to release ${releaseCatalogId}: ${error.message}`);
       // Don't throw - this shouldn't block release creation
     }
@@ -781,7 +781,7 @@ export class ReleaseService implements OnModuleInit {
               { id: artifact.fileUpload.id },
               { sha256: artifactDto.sha256 }
             );
-          } catch (error) {
+          } catch (error: any) {
             this.logger.error(`Failed to calculate SHA256 for ${artifact.fileUpload.fileName}: ${error.message}`);
             artifactDto.sha256 = '';
           }
@@ -881,7 +881,7 @@ export class ReleaseService implements OnModuleInit {
 
         await this.artifactRepo.save(artifactEntity);
         this.logger.log(`Imported docker image: ${dockerImage.name}`);
-      } catch (error) {
+      } catch (error: any) {
         this.logger.error(`Error importing docker image ${dockerImage.name}: ${error.message}`);
       }
     }
@@ -939,7 +939,7 @@ export class ReleaseService implements OnModuleInit {
         try {
           await this.importArtifact(release, artifact, userId, bucketName);
           return { name: artifact.name, success: true };
-        } catch (error) {
+        } catch (error: any) {
           this.logger.error(`Error importing artifact ${artifact.name} in background: ${error.message}`);
           // Update file_upload to save the error message 
           const projectId = typeof release.project === 'object' && 'id' in release.project ? release.project.id : release.project;
@@ -1030,7 +1030,7 @@ export class ReleaseService implements OnModuleInit {
 
     this.logger.log(`Successfully imported artifact: ${artifact.name}`);
 
-  } catch (error) {
+  } catch (error: any) {
     this.logger.error(`Failed to import artifact ${artifact.name}: ${error.message}`);
     throw error;
   }
@@ -1085,7 +1085,7 @@ export class ReleaseService implements OnModuleInit {
       );
 
       this.logger.debug(`Updated totalSize for project: ${projectId}, version: ${version}`);
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Error updating totalSize for project: ${projectId}, version: ${version}: ${error.message}`);
     }
   }
@@ -1113,7 +1113,7 @@ export class ReleaseService implements OnModuleInit {
           this.deliveryClient.send(DeliveryTopics.GET_DELIVERY_STATUSES, { catalogId })
         ) as any;
         deliveryStatuses = deliveryResponse || [];
-      } catch (error) {
+      } catch (error: any) {
         this.logger.warn(`Failed to get delivery statuses from delivery service: ${error.message}`);
       }
 
@@ -1124,7 +1124,7 @@ export class ReleaseService implements OnModuleInit {
           this.deployClient.send(DeployTopics.GET_DEPLOY_STATUSES, { catalogId })
         ) as any;
         deployStatuses = deployResponse || [];
-      } catch (error) {
+      } catch (error: any) {
         this.logger.warn(`Failed to get deploy statuses from deploy service: ${error.message}`);
       }
 
@@ -1185,7 +1185,7 @@ export class ReleaseService implements OnModuleInit {
         pushOfferingDevices = await lastValueFrom(
           this.offeringClient.send(OfferingTopics.GET_PUSH_OFFERING_DEVICES, catalogId )
         ) as any[] || [];
-      } catch (error) {
+      } catch (error: any) {
         this.logger.warn(`Failed to get push offering devices from offering service: ${error.message}`);
       }
 
@@ -1248,7 +1248,7 @@ export class ReleaseService implements OnModuleInit {
 
       this.logger.log(`Deployment report generated: ${JSON.stringify(report)}`);
       return report;
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Error generating deployment report: ${error.message}`);
       throw error;
     }
@@ -1270,7 +1270,7 @@ export class ReleaseService implements OnModuleInit {
       return;
     }
 
-    await this.artifactRepo.update({ id: artifact.id }, { sbomReportPath: reportBucketPath });
+    await this.artifactRepo.update({ id: artifact.id }, { sbomReportPath: reportBucketPath } as any);
     this.logger.log(`Linked SBOM report ${reportBucketPath} to artifact ${artifact.id}`);
   }
 }
