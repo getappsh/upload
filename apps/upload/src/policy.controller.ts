@@ -106,6 +106,16 @@ export class PolicyController {
   }
 
   /**
+   * Internal: get a policy by ID without user-auth check.
+   * Used by other microservices (e.g. discovery) for machine-to-machine calls.
+   */
+  @MessagePattern(UploadTopics.GET_POLICY_INTERNAL)
+  async getPolicyInternal(@RpcPayload() id: string) {
+    this.logger.log(`Getting policy (internal) ${id}`);
+    return this.policyService.getPolicy(id);
+  }
+
+  /**
    * Update a policy
    */
   @ValidateProjectListAccess((payload: any) => {
