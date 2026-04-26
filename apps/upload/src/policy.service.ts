@@ -4,6 +4,7 @@ import { RuleType } from '@app/common/rules/enums/rule.enums';
 import { PROJECT_ACCESS_SERVICE, ProjectAccessService } from '@app/common/utils/project-access';
 import { RuleValidationService } from '@app/common/rules/services/rule-validation.service';
 import { RuleService } from '@app/common/rules/services';
+import { RuleDefinition } from '@app/common/rules';
 
 @Injectable()
 export class PolicyService {
@@ -116,6 +117,39 @@ export class PolicyService {
         }
         return definition;
       });
+  }
+
+  /**
+   * Bulk version of getPoliciesForRelease.
+   * Returns a map of catalogId → policies[] so the caller makes ONE DB query
+   * instead of N, avoiding Kafka consumer saturation.
+   */
+  async getPoliciesForReleases(catalogIds: string[]): Promise<Record<string, RuleDefinition[]>> {
+    if (!catalogIds || catalogIds.length === 0) return {};
+
+    const rules = await this.ruleService.findAllForReleases(catalogIds);
+
+    // Group rules by the catalogIds they are associated with
+    const result: Record<string, RuleDefinition[]> = {};
+    for (const id of catalogIds) {
+      result[id] = [];
+    }
+
+    for (const rule of rules) {
+      if (rule.isPush && !rule.isActive) continue;
+      const definition = this.ruleService.ruleEntityToDefinition(rule);
+      if (rule.isPush && rule.isActive) {
+        definition.isActive = false;
+      }
+      for (const ra of rule.releaseAssociations ?? []) {
+        const catalogId = ra.release?.catalogId;
+        if (catalogId && result[catalogId] !== undefined) {
+          result[catalogId].push(definition);
+        }
+      }
+    }
+
+    return result;
   }
 
   /**
