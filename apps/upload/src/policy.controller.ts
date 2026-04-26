@@ -85,6 +85,17 @@ export class PolicyController {
   }
 
   /**
+   * Bulk: get policies for multiple releases in a single query.
+   * Returns a Record<catalogId, policy[]> map.
+   */
+  @MessagePattern(UploadTopics.GET_POLICIES_FOR_RELEASES)
+  async getPoliciesForReleases(@Payload() payload: any) {
+    const catalogIds: string[] = payload.value ?? payload;
+    this.logger.log(`Getting policies for ${catalogIds?.length ?? 0} releases (bulk)`);
+    return this.policyService.getPoliciesForReleases(catalogIds);
+  }
+
+  /**
    * Create a new policy
    */
   @ValidateProjectListAccess('association.releases')
