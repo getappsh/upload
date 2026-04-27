@@ -8,8 +8,8 @@ import { FileUploadEntity } from './file-upload.entity';
 
 @Index('unique_release_fileupload', ['release', 'fileUpload'], { unique: true, where: "file_upload_id IS NOT NULL and type = 'file'" })
 @Index('unique_release_docker_image', ['release', 'dockerImageUrl'], { unique: true, where: "docker_image_url IS NOT NULL and type = 'docker_image'" })
-@Index('unique_release_package', ['release', 'artifactName', 'type'], { unique: true, where: "file_upload_id IS NULL AND docker_image_url IS NULL" })
-@Check("((file_upload_id IS NOT NULL AND type = 'file') OR (docker_image_url IS NOT NULL AND type = 'docker_image') OR (file_upload_id IS NULL AND docker_image_url IS NULL))")
+@Index('unique_release_package', ['release', 'artifactName', 'type'], { unique: true, where: "package_version IS NOT NULL AND type IN ('rpm', 'deb')" })
+@Check("((file_upload_id IS NOT NULL AND type = 'file') OR (docker_image_url IS NOT NULL AND type = 'docker_image') OR (package_version IS NOT NULL AND type IN ('rpm', 'deb')))")
 export class ReleaseArtifactEntity extends BaseEntity {
   
   @Column({ name: 'artifact_name', nullable: true })
