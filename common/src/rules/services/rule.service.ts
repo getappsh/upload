@@ -234,6 +234,10 @@ export class RuleService implements OnModuleInit {
       queryBuilder.andWhere('deviceType.id = :deviceTypeId', { deviceTypeId: query.deviceTypeId });
     }
 
+    if (query.deviceTypeName) {
+      queryBuilder.andWhere('deviceType.name = :deviceTypeName', { deviceTypeName: query.deviceTypeName });
+    }
+
     if (query.deviceId) {
       queryBuilder.andWhere('device.ID = :deviceId', { deviceId: query.deviceId });
     }
