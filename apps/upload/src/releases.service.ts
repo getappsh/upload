@@ -110,7 +110,25 @@ export class ReleaseService implements OnModuleInit {
         : 0;
     }
     releaseEntity.metadata = normalizedMetadata;
-    if (dto?.isDraft === true) {
+
+    // Explicit status override takes precedence over isDraft flag
+    if (dto?.status === ReleaseStatusEnum.ARCHIVED) {
+      // Archiving: allowed from any non-archived state
+      if (releaseEntity.status !== ReleaseStatusEnum.ARCHIVED) {
+        releaseEntity.status = ReleaseStatusEnum.ARCHIVED;
+        // Will emit archived event after save
+      }
+    } else if (dto?.status === ReleaseStatusEnum.DRAFT) {
+      releaseEntity.status = ReleaseStatusEnum.DRAFT;
+    } else if (dto?.status === ReleaseStatusEnum.IN_REVIEW) {
+      if (releaseEntity.status !== ReleaseStatusEnum.RELEASED && releaseEntity.status !== ReleaseStatusEnum.ERROR) {
+        releaseEntity.status = ReleaseStatusEnum.IN_REVIEW;
+      }
+    } else if (dto?.status === ReleaseStatusEnum.RELEASED) {
+      // Only allow setting RELEASED directly if user has the elevated permission
+      this.checkReadonlyReleasePermission({ ...releaseEntity, status: ReleaseStatusEnum.RELEASED } as ReleaseEntity);
+      releaseEntity.status = ReleaseStatusEnum.RELEASED;
+    } else if (dto?.isDraft === true) {
       releaseEntity.status = ReleaseStatusEnum.DRAFT
     } else if (dto?.isDraft === false &&
         releaseEntity.status !== ReleaseStatusEnum.ERROR &&
@@ -142,6 +160,13 @@ export class ReleaseService implements OnModuleInit {
     }
     // Calculate and update totalSize after saving
     await this.updateTotalSize(dto.projectId, dto.version);
+
+    // When a release is archived, update the latest pointer and notify offering
+    if (dto?.status === ReleaseStatusEnum.ARCHIVED) {
+      await this.updateLatestForProject(dto.projectId);
+      this.sendProjectReleasesChangedEvent(dto.projectId, releaseEntity.catalogId, ReleaseStatusEnum.ARCHIVED);
+      return this.getRelease(dto);
+    }
 
     await this.refreshReleaseState(dto);
 
@@ -331,6 +356,93 @@ export class ReleaseService implements OnModuleInit {
       })
       .where("project_id = :projectId", { projectId, status: ReleaseStatusEnum.RELEASED })
       .execute();
+  }
+
+  /**
+   * Permanently deletes all releases for a project.
+   * Before deleting, clears any cross-project dependency links where external
+   * releases depend on this project's releases (unblocking the FK constraint).
+   * Then calls deleteRelease() for each release so S3/artifact cleanup runs normally.
+   */
+  async deleteProjectReleases(projectId: number): Promise<void> {
+    this.logger.log(`Permanently deleting all releases for project: ${projectId}`);
+
+    const releases = await this.releaseRepo.find({
+      select: { catalogId: true, version: true },
+      where: { project: { id: projectId } },
+    });
+
+    if (releases.length === 0) {
+      this.logger.debug(`No releases to delete for project: ${projectId}`);
+      return;
+    }
+
+    const catalogIds = releases.map(r => r.catalogId);
+
+    // Remove all dependency rows where other releases (outside this project) depend on
+    // our releases as a dependency — these are the rows that block deletion (NO ACTION FK).
+    await this.releaseRepo.manager.query(
+      `DELETE FROM "release_dependencies" WHERE "dependency_release_id" = ANY($1)`,
+      [catalogIds],
+    );
+
+    // Now delete each release individually to reuse S3/artifact/regulation cleanup
+    for (const release of releases) {
+      await this.deleteRelease({ projectId, projectIdentifier: projectId, version: release.version }).catch(err => {
+        this.logger.error(`Error deleting release ${release.version} for project ${projectId}: ${err?.message}`);
+      });
+    }
+
+    this.logger.log(`Deleted ${releases.length} releases for project: ${projectId}`);
+  }
+
+  /**
+   * Archives all non-archived releases for a given project.
+   * Called when a project is archived via the delete-project endpoint.
+   */
+  async archiveProjectReleases(projectId: number): Promise<void> {
+    this.logger.log(`Archiving all releases for project: ${projectId}`);
+
+    const releases = await this.releaseRepo.find({
+      select: { catalogId: true, version: true, status: true },
+      where: {
+        project: { id: projectId },
+        status: Not(ReleaseStatusEnum.ARCHIVED),
+      },
+    });
+
+    if (releases.length === 0) {
+      this.logger.debug(`No active releases to archive for project: ${projectId}`);
+      return;
+    }
+
+    await this.releaseRepo.update(
+      { project: { id: projectId }, status: Not(ReleaseStatusEnum.ARCHIVED) },
+      { status: ReleaseStatusEnum.ARCHIVED, latest: false },
+    );
+
+    // Notify offering service to remove all archived releases
+    for (const release of releases) {
+      this.sendProjectReleasesChangedEvent(projectId, release.catalogId, ReleaseStatusEnum.ARCHIVED);
+    }
+
+    this.logger.log(`Archived ${releases.length} releases for project: ${projectId}`);
+  }
+
+  /**
+   * Restores all archived releases for a project back to DRAFT status.
+   * Called when an archived project is restored.
+   */
+  async restoreProjectReleases(projectId: number): Promise<void> {
+    this.logger.log(`Restoring archived releases for project: ${projectId}`);
+
+    await this.releaseRepo.update(
+      { project: { id: projectId }, status: ReleaseStatusEnum.ARCHIVED },
+      { status: ReleaseStatusEnum.DRAFT },
+    );
+
+    await this.updateLatestForProject(projectId);
+    this.logger.log(`Restored releases for project: ${projectId} to DRAFT status`);
   }
 
   async setReleaseArtifact(artifact: SetReleaseArtifactDto): Promise<SetReleaseArtifactResDto> {
@@ -580,11 +692,9 @@ export class ReleaseService implements OnModuleInit {
     const release = await this.getReleaseEntity(params).catch(() => { });
     if (!release) return;
 
-    // ERROR status is owned by the storage-sync routine and can only be resolved
-    // via the sync loop or by a user with "edit-released-release" permission.
-    // refreshReleaseState must never overwrite it.
-    if (release.status === ReleaseStatusEnum.ERROR) {
-      this.logger.debug(`Skipping release state refresh for ${params.version} — release is in ERROR state (storage issue).`);
+    // ERROR and ARCHIVED statuses are "terminal" — refreshReleaseState must not overwrite them.
+    if (release.status === ReleaseStatusEnum.ERROR || release.status === ReleaseStatusEnum.ARCHIVED) {
+      this.logger.debug(`Skipping release state refresh for ${params.version} — release is in ${release.status} state.`);
       return;
     }
 
