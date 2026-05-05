@@ -16,6 +16,7 @@ import { MinioClientService } from "@app/common/AWS/minio-client.service";
 import { ConfigService } from "@nestjs/config";
 import { ClsService } from 'nestjs-cls';
 import { ApiRole, PermissionsService } from "@app/common";
+import { RuleType } from '@app/common/rules/enums/rule.enums';
 
 
 @Injectable()
@@ -327,7 +328,34 @@ export class ReleaseService implements OnModuleInit {
         .catch(err => this.logger.error(`Error deleting release artifact: ${artifact.id}, error: ${err}`));
     }
 
+    // Collect POLICY rule IDs associated with this release before the cascade deletes the associations
+    const policyAssociations = await this.ruleReleaseRepo.find({
+      where: { release: { catalogId: releaseEntity.catalogId } },
+      relations: ['rule'],
+    });
+    const policyRuleIds = policyAssociations
+      .filter(a => a.rule?.type === RuleType.POLICY && a.rule.id !== this.DEFAULT_RULE_ID)
+      .map(a => a.rule.id);
+
+    if (policyAssociations.length > 0) {
+      this.logger.log(`Removing ${policyAssociations.length} policy association(s) for release ${releaseEntity.catalogId}: [${policyAssociations.map(a => a.rule?.id).join(', ')}]`);
+    }
+
     await this.releaseRepo.delete({ project: { id: params.projectId }, version: params.version });
+
+    // Delete any policies that have no remaining release associations
+    if (policyRuleIds.length > 0) {
+      const remainingAssociations = await this.ruleReleaseRepo.find({
+        where: { rule: { id: In(policyRuleIds) } },
+        relations: ['rule'],
+      });
+      const rulesWithAssociations = new Set(remainingAssociations.map(a => a.rule.id));
+      const orphanedPolicyIds = policyRuleIds.filter(id => !rulesWithAssociations.has(id));
+      if (orphanedPolicyIds.length > 0) {
+        this.logger.log(`Deleting ${orphanedPolicyIds.length} orphaned policies after release deletion: ${orphanedPolicyIds.join(', ')}`);
+        await this.ruleRepo.delete({ id: In(orphanedPolicyIds) });
+      }
+    }
 
     this.sendProjectReleasesChangedEvent(params.projectId, release.id, ReleaseEventEnum.DELETED);
 
