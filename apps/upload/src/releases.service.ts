@@ -374,11 +374,18 @@ export class ReleaseService implements OnModuleInit {
       upsertOptions.conflictPaths = ['release', 'fileUpload'];
       upsertOptions.indexPredicate = "file_upload_id IS NOT NULL and type = 'file'"
 
-    } else {
+    } else if (artifact.type === ArtifactTypeEnum.DOCKER_IMAGE) {
       artifactEntity.dockerImageUrl = artifact.dockerImageUrl;
 
       upsertOptions.conflictPaths = ['release', 'dockerImageUrl'];
       upsertOptions.indexPredicate = "docker_image_url IS NOT NULL AND type = 'docker_image'"
+
+    } else if (artifact.type === ArtifactTypeEnum.RPM || artifact.type === ArtifactTypeEnum.DEB) {
+      // Package reference from yum/apt repository — no file upload required
+      artifactEntity.packageVersion = artifact.packageVersion;
+
+      upsertOptions.conflictPaths = ['release', 'artifactName', 'type'];
+      upsertOptions.indexPredicate = "file_upload_id IS NULL AND docker_image_url IS NULL"
     }
 
     this.logger.debug(`Saving release artifact for release: ${artifact.version}, type: ${artifact.type}`);
@@ -395,6 +402,9 @@ export class ReleaseService implements OnModuleInit {
           this.logger.warn(`SBOM scan trigger failed for docker artifact (non-critical): ${err?.message}`);
         });
       }
+    } else if (artifact.type === ArtifactTypeEnum.RPM || artifact.type === ArtifactTypeEnum.DEB) {
+      // Package artifacts are immediately available — trigger state refresh
+      this.refreshReleaseState(artifact);
     }
 
     return res;
@@ -625,6 +635,9 @@ export class ReleaseService implements OnModuleInit {
     const installationArtifacts = release.artifacts.filter((artifact) => artifact?.isInstallationFile);
     const fileInstallationArtifacts = installationArtifacts.filter((artifact) => artifact?.type === ArtifactTypeEnum.FILE);
     const dockerInstallationArtifacts = installationArtifacts.filter((artifact) => artifact?.type === ArtifactTypeEnum.DOCKER_IMAGE);
+    const packageInstallationArtifacts = installationArtifacts.filter(
+      (artifact) => artifact?.type === ArtifactTypeEnum.RPM || artifact?.type === ArtifactTypeEnum.DEB
+    );
 
     const fileIds = fileInstallationArtifacts.map(a => a?.fileUpload?.id).filter((id): id is number => id != null);
 
@@ -633,14 +646,14 @@ export class ReleaseService implements OnModuleInit {
     const storageMissing = fileIds.length > 0 && await this.fileUploadService.syncAndCheckMissingFiles(fileIds);
 
     // If there are file installation artifacts, ALL of them must be fully uploaded.
-    // If there are no file installation artifacts, fall back to checking docker images are present (they're always ready once added).
+    // Docker images and package (rpm/deb) artifacts are always ready once added.
     const fileUploaded = installationArtifacts.length > 0 && (
       fileInstallationArtifacts.length > 0
         ? await this.fileUploadService.areFilesUploaded(fileIds)
-        : dockerInstallationArtifacts.length > 0
+        : dockerInstallationArtifacts.length > 0 || packageInstallationArtifacts.length > 0
     );
 
-    this.logger.log(`Release: ${params.version} for project: ${params.projectId} has ${installationArtifacts.length} installation artifacts (${fileInstallationArtifacts.length} files, ${dockerInstallationArtifacts.length} docker) and they are ready: ${fileUploaded}`);
+    this.logger.log(`Release: ${params.version} for project: ${params.projectId} has ${installationArtifacts.length} installation artifacts (${fileInstallationArtifacts.length} files, ${dockerInstallationArtifacts.length} docker, ${packageInstallationArtifacts.length} packages) and they are ready: ${fileUploaded}`);
 
     this.logger.debug(`Release: ${params.version} for project: ${params.projectId}, status: ${release.status}, regulationsCompliant: ${regulationsCompliant}, dependenciesReleased: ${dependenciesReleased}, fileUploaded: ${fileUploaded}, storageMissing: ${storageMissing}`);
 
