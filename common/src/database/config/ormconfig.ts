@@ -20,8 +20,6 @@ const ormConfig = new DataSource({
   database: `${process.env.POSTGRES_DB}${region}`,
   username: process.env.POSTGRES_USER,
   connectTimeoutMS: 5000,
-  poolSize: 25,
-
 
   ...getDBAuthParams(),
 
