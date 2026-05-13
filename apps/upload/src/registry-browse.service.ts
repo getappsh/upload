@@ -3,12 +3,8 @@ import { BrowseRegistryDto, BrowseRegistryResponseDto, RegistryItemDto } from "@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { MinioClientService } from "@app/common/AWS/minio-client.service";
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { gunzipSync } from 'zlib';
 import axios from 'axios';
-
-const execFileAsync = promisify(execFile);
 
 interface RegistryConfig {
   url: string;
@@ -23,7 +19,6 @@ export class RegistryBrowseService implements OnModuleInit {
   private dockerRegistries: RegistryConfig[] = [];
   private rpmRegistries: RegistryConfig[] = [];
   private aptRegistries: RegistryConfig[] = [];
-  private skopeoAvailable = false;
 
   constructor(
     private readonly configService: ConfigService,
@@ -32,19 +27,8 @@ export class RegistryBrowseService implements OnModuleInit {
     this.bucketName = this.configService.get('BUCKET_NAME');
   }
 
-  async onModuleInit() {
-    this.skopeoAvailable = await this.checkSkopeoAvailable();
+  onModuleInit() {
     this.loadRegistryConfigs();
-    this.logger.log(`skopeo available: ${this.skopeoAvailable}`);
-  }
-
-  private async checkSkopeoAvailable(): Promise<boolean> {
-    try {
-      await execFileAsync('skopeo', ['--version'], { timeout: 5000 });
-      return true;
-    } catch {
-      return false;
-    }
   }
 
   private loadRegistryConfigs() {
@@ -145,7 +129,7 @@ export class RegistryBrowseService implements OnModuleInit {
     }
   }
 
-  // ─── Docker Registry (skopeo for tags, HTTP for catalog) ───────────
+  // ─── Docker Registry (HTTP V2 API) ─────────────────────────────────
 
   private async listDockerImages(nameFilter?: string, registryName?: string): Promise<RegistryItemDto[]> {
     const items: RegistryItemDto[] = [];
@@ -157,7 +141,7 @@ export class RegistryBrowseService implements OnModuleInit {
       try {
         const repos = await this.fetchRegistryCatalog(registry);
         for (const repo of repos) {
-          const tags = await this.skopeoListTags(registry, repo);
+          const tags = await this.fetchTagsViaHttp(registry, repo);
           for (const tag of tags) {
             const fullName = `${registry.url.replace(/^https?:\/\//, '')}/${repo}:${tag}`;
             items.push({
@@ -264,38 +248,9 @@ export class RegistryBrowseService implements OnModuleInit {
   }
 
   /**
-   * Lists tags for a specific repository.
-   * Uses skopeo if available, otherwise falls back to HTTP API.
-   */
-  private async skopeoListTags(registry: RegistryConfig, repo: string): Promise<string[]> {
-    if (!this.skopeoAvailable) {
-      return this.fetchTagsViaHttp(registry, repo);
-    }
-
-    try {
-      const registryHost = registry.url.replace(/^https?:\/\//, '').replace(/\/$/, '');
-      const args = ['list-tags', '--tls-verify=false'];
-
-      if (registry.username && registry.password) {
-        args.push(`--creds=${registry.username}:${registry.password}`);
-      }
-
-      args.push(`docker://${registryHost}/${repo}`);
-
-      const { stdout } = await execFileAsync('skopeo', args, { timeout: 30000 });
-      const result = JSON.parse(stdout);
-      return result.Tags || [];
-    } catch (error: any) {
-      this.logger.warn(`skopeo list-tags failed for ${repo}: ${error.message}`);
-      // Fallback: use HTTP tags API
-      return this.fetchTagsViaHttp(registry, repo);
-    }
-  }
-
-  /**
-   * Fallback: fetch tags via Docker Registry HTTP API.
+   * Fetch tags via Docker Registry HTTP V2 API.
    * GET /v2/{repo}/tags/list → { tags: ["v1", "v2", ...] }
-   * For Docker Hub, obtains a scoped bearer token.
+   * Works with Docker Hub, Harbor, Artifactory, Nexus.
    */
   private async fetchTagsViaHttp(registry: RegistryConfig, repo: string): Promise<string[]> {
     try {
