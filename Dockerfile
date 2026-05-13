@@ -2,6 +2,10 @@
 
 FROM node:19.5.0-alpine
 USER root
+
+# Install skopeo for Docker registry integration and dnf for RPM package listing
+RUN apk add --no-cache skopeo
+
 WORKDIR /node-app
 COPY package.json package.json
 RUN npm i

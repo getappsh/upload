@@ -73,6 +73,24 @@ export class MinioClientService implements OnModuleInit{
     return this.client.bucketExists(bucketName)
   }
 
+  listObjects(bucketName: string, prefix?: string, recursive?: boolean): Promise<Array<{ name: string; size: number; lastModified: Date }>> {
+    return new Promise((resolve, reject) => {
+      const objects: Array<{ name: string; size: number; lastModified: Date }> = [];
+      const stream = this.client.listObjectsV2(bucketName, prefix || '', recursive ?? true);
+      stream.on('data', (obj) => {
+        if (obj.name) {
+          objects.push({
+            name: obj.name,
+            size: obj.size,
+            lastModified: obj.lastModified,
+          });
+        }
+      });
+      stream.on('error', (err) => reject(err));
+      stream.on('end', () => resolve(objects));
+    });
+  }
+
   async onModuleInit() {
     const bucketName = this.configService.get('BUCKET_NAME');
     try{

@@ -26,6 +26,7 @@ import { PolicyService } from './policy.service';
 import { PolicyController } from './policy.controller';
 import { FileProcessingService } from '@app/common/AWS/file-processing.service';
 import { PermissionsModule } from '@app/common/permissions/permissions.module';
+import { RegistryBrowseService } from './registry-browse.service';
 
 @Module({
   imports: [
@@ -100,6 +101,7 @@ import { PermissionsModule } from '@app/common/permissions/permissions.module';
     CosignSignatureService,
     PolicyService,
     FileProcessingService,
+    RegistryBrowseService,
     {
       provide: PROJECT_ACCESS_SERVICE,
       useExisting: UploadService

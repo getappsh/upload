@@ -51,6 +51,10 @@ export const UploadTopics = {
     // Settings
     GET_SBOM_ENABLED: `getapp-upload.get-sbom-enabled${region}`,
 
+    // Registry browsing
+    BROWSE_REGISTRY: `getapp-upload.browse-registry${region}`,
+    LINK_EXISTING_ARTIFACT: `getapp-upload.link-existing-artifact${region}`,
+
 } as const
 
 export const UploadTopicsEmit = {
