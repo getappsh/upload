@@ -5,6 +5,7 @@ import { ConfigService } from "@nestjs/config";
 import { MinioClientService } from "@app/common/AWS/minio-client.service";
 import { gunzipSync } from 'zlib';
 import axios from 'axios';
+import { getRepos, getTags } from '@snyk/docker-registry-v2-client';
 
 interface RegistryConfig {
   url: string;
@@ -139,11 +140,18 @@ export class RegistryBrowseService implements OnModuleInit {
 
     for (const registry of registries) {
       try {
-        const repos = await this.fetchRegistryCatalog(registry);
+        const registryBase = registry.url.replace(/\/$/, '').replace(/^https?:\/\//, '');
+        const isDockerHub = registryBase.includes('docker.io');
+        const options = registry.url.startsWith('http://') ? { protocol: 'http:' } : undefined;
+
+        const repos = isDockerHub
+          ? await this.fetchDockerHubRepositories(registry)
+          : await getRepos(registryBase, registry.username, registry.password, undefined, undefined, options);
+
         for (const repo of repos) {
-          const tags = await this.fetchTagsViaHttp(registry, repo);
+          const tags = await getTags(registryBase, repo, registry.username, registry.password, undefined, undefined, options);
           for (const tag of tags) {
-            const fullName = `${registry.url.replace(/^https?:\/\//, '')}/${repo}:${tag}`;
+            const fullName = `${registryBase}/${repo}:${tag}`;
             items.push({
               name: fullName,
               type: ArtifactTypeEnum.DOCKER_IMAGE,
@@ -160,120 +168,36 @@ export class RegistryBrowseService implements OnModuleInit {
   }
 
   /**
-   * Fetches the repository catalog from a Docker registry.
-   * For Docker Hub: uses hub.docker.com API (registry-1 doesn't support /v2/_catalog for users).
-   * For private registries: uses /v2/_catalog with Basic auth.
-   */
-  private async fetchRegistryCatalog(registry: RegistryConfig): Promise<string[]> {
-    try {
-      const baseUrl = registry.url.replace(/\/$/, '');
-      const isDockerHub = baseUrl.includes('docker.io');
-
-      if (isDockerHub) {
-        return this.fetchDockerHubRepositories(registry);
-      }
-
-      const catalogUrl = `${baseUrl}/v2/_catalog`;
-      const headers: Record<string, string> = {};
-
-      if (registry.username && registry.password) {
-        const auth = Buffer.from(`${registry.username}:${registry.password}`).toString('base64');
-        headers['Authorization'] = `Basic ${auth}`;
-      }
-
-      const response = await axios.get<{ repositories?: string[] }>(catalogUrl, { headers, timeout: 30000 });
-      return response.data.repositories || [];
-    } catch (error: any) {
-      this.logger.error(`Failed to fetch registry catalog from ${registry.url}: ${error.message}`);
-      return [];
-    }
-  }
-
-  /**
    * Lists repositories from Docker Hub using hub.docker.com API.
+   * Docker Hub does not support /v2/_catalog, so we use the Hub API instead.
    */
   private async fetchDockerHubRepositories(registry: RegistryConfig): Promise<string[]> {
-    try {
-      if (!registry.username) {
-        this.logger.warn('Docker Hub requires DOCKER_REGISTRY_USERNAME to list repositories');
-        return [];
-      }
-
-      const namespace = registry.username;
-      const url = `https://hub.docker.com/v2/repositories/${namespace}/?page_size=100`;
-      const headers: Record<string, string> = {};
-
-      if (registry.password) {
-        try {
-          const loginRes = await axios.post<{ token?: string }>(
-            'https://hub.docker.com/v2/users/login/',
-            { username: registry.username, password: registry.password },
-            { timeout: 10000 },
-          );
-          if (loginRes.data.token) {
-            headers['Authorization'] = `JWT ${loginRes.data.token}`;
-          }
-        } catch (e: any) {
-          this.logger.warn(`Docker Hub login failed: ${e.message}, trying without auth`);
-        }
-      }
-
-      const res = await axios.get<{ results?: { name: string }[] }>(url, { headers, timeout: 30000 });
-      return (res.data.results || []).map(r => `${namespace}/${r.name}`);
-    } catch (error: any) {
-      this.logger.error(`Failed to fetch Docker Hub repositories: ${error.message}`);
+    if (!registry.username) {
+      this.logger.warn('Docker Hub requires DOCKER_REGISTRY_USERNAME to list repositories');
       return [];
     }
-  }
 
-  /**
-   * Obtains a bearer token from Docker Hub's auth service.
-   * Passes credentials if available to get an authenticated token.
-   */
-  private async getDockerHubToken(scope: string, registry?: RegistryConfig): Promise<string | null> {
-    try {
-      const tokenUrl = `https://auth.docker.io/token?service=registry.docker.io&scope=${encodeURIComponent(scope)}`;
-      const headers: Record<string, string> = {};
+    const namespace = registry.username;
+    const url = `https://hub.docker.com/v2/repositories/${namespace}/?page_size=100`;
+    const headers: Record<string, string> = {};
 
-      if (registry?.username && registry?.password) {
-        const auth = Buffer.from(`${registry.username}:${registry.password}`).toString('base64');
-        headers['Authorization'] = `Basic ${auth}`;
-      }
-
-      const res = await axios.get<{ token?: string }>(tokenUrl, { headers, timeout: 10000 });
-      return res.data.token || null;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Fetch tags via Docker Registry HTTP V2 API.
-   * GET /v2/{repo}/tags/list → { tags: ["v1", "v2", ...] }
-   * Works with Docker Hub, Harbor, Artifactory, Nexus.
-   */
-  private async fetchTagsViaHttp(registry: RegistryConfig, repo: string): Promise<string[]> {
-    try {
-      const baseUrl = registry.url.replace(/\/$/, '');
-      const isDockerHub = baseUrl.includes('docker.io');
-      const tagsUrl = `${baseUrl}/v2/${repo}/tags/list`;
-
-      const headers: Record<string, string> = {};
-      if (isDockerHub) {
-        const token = await this.getDockerHubToken(`repository:${repo}:pull`, registry);
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
+    if (registry.password) {
+      try {
+        const loginRes = await axios.post<{ token?: string }>(
+          'https://hub.docker.com/v2/users/login/',
+          { username: registry.username, password: registry.password },
+          { timeout: 10000 },
+        );
+        if (loginRes.data.token) {
+          headers['Authorization'] = `JWT ${loginRes.data.token}`;
         }
-      } else if (registry.username && registry.password) {
-        const auth = Buffer.from(`${registry.username}:${registry.password}`).toString('base64');
-        headers['Authorization'] = `Basic ${auth}`;
+      } catch (e: any) {
+        this.logger.warn(`Docker Hub login failed: ${e.message}, trying without auth`);
       }
-
-      const response = await axios.get<{ tags?: string[] }>(tagsUrl, { headers, timeout: 15000 });
-      return response.data.tags || [];
-    } catch {
-      return [];
     }
+
+    const res = await axios.get<{ results?: { name: string }[] }>(url, { headers, timeout: 30000 });
+    return (res.data.results || []).map(r => `${namespace}/${r.name}`);
   }
 
   // ─── RPM Registry (HTTP metadata parsing) ─────────────────────────
