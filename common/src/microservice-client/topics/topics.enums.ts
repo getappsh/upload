@@ -50,6 +50,9 @@ export const UploadTopics = {
     // Settings
     GET_SBOM_ENABLED: `getapp-upload.get-sbom-enabled${region}`,
 
+    // Config
+    CONFIG_ENSURE_DEVICE_PROJECT: `getapp-upload.config.ensure-device-project${region}`,
+    CONFIG_GET_DEVICE_CONFIG: `getapp-upload.config.get-device-config${region}`,
 } as const
 
 export const UploadTopicsEmit = {
