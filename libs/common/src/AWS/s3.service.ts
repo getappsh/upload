@@ -15,7 +15,7 @@ export class S3Service implements OnApplicationBootstrap {
 
   private readonly logger = new Logger(S3Service.name);
 
-  private s3: S3;
+  protected s3: S3;
   private externS3: S3;
   private bucketName: string | undefined;
   private interEndpoint: string | undefined
@@ -31,10 +31,12 @@ export class S3Service implements OnApplicationBootstrap {
     this.externEndpoint = this.configService.get('S3_ENDPOINT_EXTERNAL');
     this.bucketName = this.configService.get('BUCKET_NAME');
 
+    const isCustomEndpoint = !!this.interEndpoint;
     const baseS3Config = {
       region: awsRegion,
       credentials,
-      forcePathStyle: !!this.interEndpoint,
+      forcePathStyle: isCustomEndpoint,
+      ...(isCustomEndpoint && this.interEndpoint?.startsWith('http://') ? { tls: false } : {}),
     };
 
     this.s3 = new S3({
@@ -200,6 +202,75 @@ export class S3Service implements OnApplicationBootstrap {
     })
 
     return data
+  }
+
+  async putObjectContent(objectKey: string, content: string, contentType = 'application/octet-stream'): Promise<void> {
+    await this.s3.send(new PutObjectCommand({
+      Bucket: this.bucketName,
+      Key: objectKey,
+      Body: content,
+      ContentType: contentType,
+    }));
+  }
+
+  async getObjectAsString(objectKey: string): Promise<string | null> {
+    try {
+      const response = await this.s3.send(new GetObjectCommand({ Bucket: this.bucketName, Key: objectKey }));
+      return await response.Body?.transformToString() ?? null;
+    } catch (err: any) {
+      if (err?.name === 'NoSuchKey' || err?.$metadata?.httpStatusCode === 404) return null;
+      throw err;
+    }
+  }
+
+  /**
+   * Store an arbitrary string payload at `objectKey` with optional S3 metadata.
+   * Suitable for small blobs like cached JSON payloads.
+   */
+  async putObjectWithContent(
+    objectKey: string,
+    body: string,
+    options?: { contentType?: string; metadata?: Record<string, string> },
+  ): Promise<void> {
+    await this.s3.putObject({
+      Bucket: this.bucketName,
+      Key: objectKey,
+      Body: body,
+      ContentType: options?.contentType ?? 'application/octet-stream',
+      Metadata: options?.metadata,
+    });
+  }
+
+  /**
+   * Fetch a text object from S3.
+   * Returns `null` when the key does not exist (404 / NoSuchKey).
+   * Also returns the raw S3 Metadata map so callers can inspect custom headers.
+   */
+  async getObjectWithMetadata(
+    objectKey: string,
+  ): Promise<{ body: string; metadata: Record<string, string> } | null> {
+    try {
+      const result = await this.s3.send(new GetObjectCommand({ Bucket: this.bucketName, Key: objectKey }));
+      const body = await this.streamToString(result.Body as Readable);
+      return {
+        body,
+        metadata: (result.Metadata as Record<string, string>) ?? {},
+      };
+    } catch (error) {
+      if (error['$metadata']?.httpStatusCode === 404 || error.name === 'NoSuchKey') {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private streamToString(readable: Readable): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      readable.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+      readable.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+      readable.on('error', reject);
+    });
   }
 
   onApplicationBootstrap() {
