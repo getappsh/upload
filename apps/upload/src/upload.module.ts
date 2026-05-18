@@ -30,7 +30,6 @@ import { VaultModule } from '@app/common/vault';
 import { ConfigService as AppConfigService } from './config/config.service';
 import { ConfigController } from './config/config.controller';
 import { ConfigCacheService } from './config/config-cache.service';
-import { ConfigProjectProvisioningService } from './config/config-project-provisioning.service';
 
 @Module({
   imports: [
@@ -112,7 +111,6 @@ import { ConfigProjectProvisioningService } from './config/config-project-provis
     FileProcessingService,
     AppConfigService,
     ConfigCacheService,
-    ConfigProjectProvisioningService,
     {
       provide: PROJECT_ACCESS_SERVICE,
       useExisting: UploadService
