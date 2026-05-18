@@ -44,6 +44,8 @@ export class MicroserviceClient {
       catchError((err) => {
         if (err instanceof TimeoutError) {
           this.logger.warn(`RPC timeout after ${waitTime}ms for pattern: ${JSON.stringify(pattern)}`);
+        } else {
+          this.logger.error(`Microservice error for ${JSON.stringify(pattern)}: ${err?.message}`);
         }
         return throwError(() => err);
       }),
