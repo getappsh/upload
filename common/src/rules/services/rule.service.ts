@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { RuleEntity } from '../../database/entities/rule.entity';
@@ -13,6 +13,7 @@ import { CreateRuleDto, CreatePolicyDto, CreateRestrictionDto, UpdateRuleDto } f
 import { RuleValidationService } from './rule-validation.service';
 import { RuleType } from '../enums/rule.enums';
 import { RuleDefinition } from '../types/rule.types';
+import { DEFAULT_ALLOW_ALL_DEVICES_RULE_ID, DEFAULT_ALLOW_ALL_DEVICES_RULE_NAME, DEFAULT_ALLOW_ALL_DEVICES_RULE } from '../constants';
 
 interface RuleQueryFilter {
   type?: RuleType;
@@ -26,7 +27,7 @@ interface RuleQueryFilter {
 }
 
 @Injectable()
-export class RuleService {
+export class RuleService implements OnModuleInit {
   private readonly logger = new Logger(RuleService.name);
   constructor(
     @InjectRepository(RuleEntity)
@@ -47,6 +48,25 @@ export class RuleService {
     private readonly deviceRepository: Repository<DeviceEntity>,
     private readonly ruleValidationService: RuleValidationService,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.ruleRepository.createQueryBuilder()
+      .insert()
+      .into(RuleEntity)
+      .values({
+        id: DEFAULT_ALLOW_ALL_DEVICES_RULE_ID,
+        name: DEFAULT_ALLOW_ALL_DEVICES_RULE_NAME,
+        description: 'Default policy that allows all devices to download a component. This rule is automatically applied to all existing and new releases unless manually removed.',
+        type: RuleType.POLICY,
+        version: 1,
+        isActive: true,
+        rule: DEFAULT_ALLOW_ALL_DEVICES_RULE,
+      })
+      .orUpdate(['rule'], ['id'])
+      .execute();
+
+    this.logger.log('Default "Allow All Devices" rule seeded');
+  }
 
   /**
    * Creates a new rule with its associations
@@ -80,6 +100,7 @@ export class RuleService {
       type: createRuleDto.type,
       rule: createRuleDto.rule,
       isActive: createRuleDto.isActive ?? true,
+      isPush: createRuleDto.isPush ?? false,
       version: 1,
     });
 
@@ -108,6 +129,7 @@ export class RuleService {
     if (updateRuleDto.name !== undefined) rule.name = updateRuleDto.name;
     if (updateRuleDto.description !== undefined) rule.description = updateRuleDto.description;
     if (updateRuleDto.isActive !== undefined) rule.isActive = updateRuleDto.isActive;
+    if (updateRuleDto.isPush !== undefined) rule.isPush = updateRuleDto.isPush;
     if (updateRuleDto.rule !== undefined) rule.rule = updateRuleDto.rule;
 
     await this.ruleRepository.save(rule);
@@ -190,6 +212,10 @@ export class RuleService {
       queryBuilder.andWhere('deviceType.id = :deviceTypeId', { deviceTypeId: query.deviceTypeId });
     }
 
+    if (query.deviceTypeName) {
+      queryBuilder.andWhere('deviceType.name = :deviceTypeName', { deviceTypeName: query.deviceTypeName });
+    }
+
     if (query.deviceId) {
       queryBuilder.andWhere('device.ID = :deviceId', { deviceId: query.deviceId });
     }
@@ -214,6 +240,7 @@ export class RuleService {
       type: rule.type,
       version: rule.version,
       isActive: rule.isActive,
+      isPush: rule.isPush ?? false,
       rule: rule.rule,
       createdAt: rule.createdAt.toISOString(),
       updatedAt: rule.updatedAt.toISOString(),
