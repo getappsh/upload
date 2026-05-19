@@ -16,7 +16,6 @@ import {
   ConfigRevisionEntity,
   ConfigRevisionStatus,
   OfferingActionEnum,
-  ProjectEntity,
   ProjectType,
   ReleaseEntity,
   ReleaseStatusEnum,
@@ -40,7 +39,7 @@ import {
 import { VaultService } from '@app/common/vault';
 import { ConfigCacheService } from './config-cache.service';
 import { MicroserviceClient, MicroserviceName } from '@app/common/microservice-client';
-import { DeviceTopics, DevicesHierarchyTopics } from '@app/common/microservice-client/topics';
+import { DeviceTopics, DevicesHierarchyTopics, ProjectManagementTopics } from '@app/common/microservice-client/topics';
 import { lastValueFrom } from 'rxjs';
 
 const CONFIG_VAULT_FIELD = 'config_value' as const;
@@ -81,7 +80,6 @@ export class ConfigService implements OnModuleInit {
   private readonly logger = new Logger(ConfigService.name);
 
   constructor(
-    @InjectRepository(ProjectEntity) private readonly projectRepo: Repository<ProjectEntity>,
     @InjectRepository(ConfigRevisionEntity) private readonly revisionRepo: Repository<ConfigRevisionEntity>,
     @InjectRepository(ConfigGroupEntity) private readonly groupRepo: Repository<ConfigGroupEntity>,
     @InjectRepository(ConfigMapAssociationEntity) private readonly assocRepo: Repository<ConfigMapAssociationEntity>,
@@ -89,6 +87,7 @@ export class ConfigService implements OnModuleInit {
     private readonly vaultService: VaultService,
     private readonly cacheService: ConfigCacheService,
     @Inject(MicroserviceName.DEVICE_SERVICE) private readonly deviceClient: MicroserviceClient,
+    @Inject(MicroserviceName.PROJECT_MANAGEMENT_SERVICE) private readonly projectManagementClient: MicroserviceClient,
   ) {}
 
   async onModuleInit() {
@@ -98,22 +97,46 @@ export class ConfigService implements OnModuleInit {
       DeviceTopics.GET_ALL_DEVICE_IDS,
       DevicesHierarchyTopics.GET_DEVICE_TYPE_BY_NAME,
     ]);
+    this.projectManagementClient.subscribeToResponseOf([
+      ProjectManagementTopics.GET_PROJECT_BY_IDENTIFIER,
+      ProjectManagementTopics.GET_PROJECTS,
+    ]);
     await this.deviceClient.connect();
+    await this.projectManagementClient.connect();
   }
 
   // ---------------------------------------------------------------------------
   // Internal helpers
   // ---------------------------------------------------------------------------
 
-  private findProjectCondition(identifier: number | string) {
-    return typeof identifier === 'number' ? { id: identifier } : { name: identifier };
+  private async getProjectByIdentifier(identifier: number | string): Promise<any | null> {
+    return lastValueFrom(
+      this.projectManagementClient.send(ProjectManagementTopics.GET_PROJECT_BY_IDENTIFIER, {
+        projectIdentifier: identifier,
+      }),
+    ).catch(() => null);
+  }
+
+  private async getProjectByNameAndType(name: string, projectType: ProjectType): Promise<any | null> {
+    const projects = await lastValueFrom(
+      this.projectManagementClient.send(ProjectManagementTopics.GET_PROJECTS, {
+        page: 1,
+        perPage: 1,
+        projectNames: [name],
+        projectTypes: [projectType],
+      }),
+    ).catch(() => null as any);
+
+    const project = projects?.data?.[0];
+    if (!project || project.projectType !== projectType) return null;
+    return project;
   }
 
   private async requireProject(
     identifier: number | string,
     expectedType?: ProjectType | ProjectType[],
-  ): Promise<ProjectEntity> {
-    const project = await this.projectRepo.findOne({ where: this.findProjectCondition(identifier) });
+  ): Promise<any> {
+    const project = await this.getProjectByIdentifier(identifier);
     if (!project) throw new NotFoundException(`Project not found: ${identifier}`);
     if (expectedType) {
       const types = Array.isArray(expectedType) ? expectedType : [expectedType];
@@ -332,10 +355,7 @@ export class ConfigService implements OnModuleInit {
 
   async getActiveConfigSemVerForDevice(deviceId: string): Promise<{ semVer: string | null }> {
     const projectName = `config:${deviceId}`;
-    const configProject = await this.projectRepo.findOne({
-      where: { name: projectName, projectType: ProjectType.CONFIG },
-      select: ['id'],
-    });
+    const configProject = await this.getProjectByNameAndType(projectName, ProjectType.CONFIG);
     if (!configProject) return { semVer: null };
     const revision = await this.revisionRepo.findOne({
       where: { projectId: configProject.id, status: ConfigRevisionStatus.ACTIVE },
@@ -541,8 +561,14 @@ export class ConfigService implements OnModuleInit {
     if (applicableAssocs.length === 0) return [];
 
     const configMapProjectIds = [...new Set(applicableAssocs.map((a) => a.configMapProjectId))];
-    const configMapProjects = await this.projectRepo.find({ where: { id: In(configMapProjectIds) } });
-    const projectMap = new Map(configMapProjects.map((p) => [p.id, p]));
+    const configMapProjects = await Promise.all(
+      configMapProjectIds.map(async (projectId) => this.getProjectByIdentifier(projectId)),
+    );
+    const projectMap = new Map(
+      configMapProjects
+        .filter((p): p is any => !!p)
+        .map((p) => [p.id, p]),
+    );
 
     const seen = new Set<number>();
     const result: ConfigMapForProjectDto[] = [];
@@ -560,41 +586,8 @@ export class ConfigService implements OnModuleInit {
   }
 
   // ---------------------------------------------------------------------------
-  // Device config project auto-creation (called from discovery)
+  // Device config project provisioning (called from project-management via Kafka)
   // ---------------------------------------------------------------------------
-
-  async ensureDeviceConfigProject({ deviceId, deviceTypeIds }: { deviceId: string; deviceTypeIds?: number[] }): Promise<number> {
-    const projectName = `config:${deviceId}`;
-    let project = await this.projectRepo.findOne({ where: { name: projectName } });
-
-    if (!project) {
-      this.logger.log(`Creating config project for device ${deviceId}`);
-      project = await this.projectRepo.save(
-        this.projectRepo.create({
-          name: projectName,
-          projectName: `Config – ${deviceId}`,
-          projectType: ProjectType.CONFIG,
-          description: `Auto-created config project for device ${deviceId}`,
-        }),
-      );
-
-      // Create a placeholder release (semver 0.0.0) so component_offering FK is satisfied.
-      // autoPublishInitialRevision will replace it with the real initial semver.
-      await this.releaseRepo.save(
-        this.releaseRepo.create({
-          version: '0.0.0',
-          status: ReleaseStatusEnum.RELEASED,
-          project: { id: project.id } as ProjectEntity,
-          metadata: {},
-        }),
-      );
-
-      await this.provisionDefaultConfigProject(project.id);
-      await this.autoPublishInitialRevision(project.id, deviceId, deviceTypeIds);
-    }
-
-    return project.id;
-  }
 
   async provisionProjectContent({ projectId, deviceId, deviceTypeIds }: { projectId: number; deviceId: string; deviceTypeIds?: number[] }): Promise<void> {
     await this.provisionDefaultConfigProject(projectId);
@@ -667,7 +660,7 @@ export class ConfigService implements OnModuleInit {
 
     for (const deviceId of deviceIdSet) {
       const projectName = `config:${deviceId}`;
-      const configProject = await this.projectRepo.findOne({ where: { name: projectName, projectType: ProjectType.CONFIG } });
+      const configProject = await this.getProjectByNameAndType(projectName, ProjectType.CONFIG);
       if (!configProject) continue;
 
       try {
@@ -762,7 +755,7 @@ export class ConfigService implements OnModuleInit {
       this.releaseRepo.create({
         version: newSemVer,
         status: ReleaseStatusEnum.RELEASED,
-        project: { id: projectId } as ProjectEntity,
+        project: { id: projectId } as any,
         metadata: {},
       }),
     );
@@ -876,9 +869,7 @@ export class ConfigService implements OnModuleInit {
     const { deviceId } = dto;
 
     const projectName = `config:${deviceId}`;
-    const configProject = await this.projectRepo.findOne({
-      where: { name: projectName, projectType: ProjectType.CONFIG },
-    });
+    const configProject = await this.getProjectByNameAndType(projectName, ProjectType.CONFIG);
 
     const activeSemVer = configProject
       ? (
@@ -908,9 +899,7 @@ export class ConfigService implements OnModuleInit {
     if (cached) return cached as DeviceConfigDto;
 
     const projectName = `config:${dto.deviceId}`;
-    const configProject = await this.projectRepo.findOne({
-      where: { name: projectName, projectType: ProjectType.CONFIG },
-    });
+    const configProject = await this.getProjectByNameAndType(projectName, ProjectType.CONFIG);
     if (!configProject) {
       throw new NotFoundException(`No config project found for device '${dto.deviceId}'`);
     }
@@ -956,9 +945,7 @@ export class ConfigService implements OnModuleInit {
 
   private async buildDeviceConfigPayload(deviceId: string): Promise<DeviceConfigDto> {
     const projectName = `config:${deviceId}`;
-    const configProject = await this.projectRepo.findOne({
-      where: { name: projectName, projectType: ProjectType.CONFIG },
-    });
+    const configProject = await this.getProjectByNameAndType(projectName, ProjectType.CONFIG);
 
     const deviceTypeIds = await lastValueFrom(
       this.deviceClient.send<number[]>(DeviceTopics.GET_DEVICE_TYPE_IDS_FOR_DEVICE, deviceId),
