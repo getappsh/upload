@@ -51,6 +51,23 @@ export const UploadTopics = {
     // Settings
     GET_SBOM_ENABLED: `getapp-upload.get-sbom-enabled${region}`,
 
+    // Config projects
+    CONFIG_UPSERT_GROUP: `getapp-upload.config.upsert-group${region}`,
+    CONFIG_DELETE_GROUP: `getapp-upload.config.delete-group${region}`,
+    CONFIG_APPLY_REVISION: `getapp-upload.config.apply-revision${region}`,
+    CONFIG_GET_REVISIONS: `getapp-upload.config.get-revisions${region}`,
+    CONFIG_GET_REVISION_BY_ID: `getapp-upload.config.get-revision-by-id${region}`,
+    CONFIG_ADD_MAP_ASSOCIATION: `getapp-upload.config.add-map-association${region}`,
+    CONFIG_REMOVE_MAP_ASSOCIATION: `getapp-upload.config.remove-map-association${region}`,
+    CONFIG_GET_MAP_ASSOCIATIONS: `getapp-upload.config.get-map-associations${region}`,
+    CONFIG_GET_CONFIG_MAPS_FOR_PROJECT: `getapp-upload.config.get-config-maps-for-project${region}`,
+    CONFIG_GET_DEVICE_CONFIG: `getapp-upload.config.get-device-config${region}`,
+    CONFIG_GET_DEVICE_CONFIG_BY_VERSION: `getapp-upload.config.get-device-config-by-version${region}`,
+    CONFIG_GET_ACTIVE_SEMVER_FOR_DEVICE: `getapp-upload.config.get-active-semver-for-device${region}`,
+    CONFIG_ENSURE_DEVICE_PROJECT: `getapp-upload.config.ensure-device-project${region}`,
+    CONFIG_PROVISION_PROJECT_CONTENT: `getapp-upload.config.provision-project-content${region}`,
+    CONFIG_CREATE_DRAFT_REVISION: `getapp-upload.config.create-draft-revision${region}`,
+    CONFIG_DELETE_DRAFT_REVISION: `getapp-upload.config.delete-draft-revision${region}`,
 } as const
 
 export const UploadTopicsEmit = {
@@ -229,6 +246,9 @@ export const DeviceTopics = {
     // Config
     GET_DEVICE_CONFIG: `getapp-device.config.get${region}`,
     SET_DEVICE_CONFIG: `getapp-device.config.set${region}`,
+    GET_DEVICE_TYPE_IDS_FOR_DEVICE: `getapp-device.get-device-type-ids${region}`,
+    GET_DEVICE_IDS_BY_TYPE_IDS: `getapp-device.get-device-ids-by-type-ids${region}`,
+    GET_ALL_DEVICE_IDS: `getapp-device.get-all-device-ids${region}`,
     
     // Rules - Restrictions
     GET_RESTRICTIONS: `getapp-device.get-restrictions${region}`,
