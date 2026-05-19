@@ -10,10 +10,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
 import * as yaml from 'js-yaml';
 import {
+  ComponentOfferingEntity,
   ConfigGroupEntity,
   ConfigMapAssociationEntity,
   ConfigRevisionEntity,
   ConfigRevisionStatus,
+  OfferingActionEnum,
   ProjectEntity,
   ProjectType,
   ReleaseEntity,
@@ -315,6 +317,7 @@ export class ConfigService implements OnModuleInit {
     // Upload config to S3 immediately so it's ready when the client asks for it
     if (project.projectType === ProjectType.CONFIG && project.name.startsWith('config:')) {
       const deviceId = project.name.slice('config:'.length);
+      await this.updateConfigProjectRelease(project.id, draft.semVer);
       await this.assembleAndCacheDeviceConfig(deviceId, draft.semVer);
     }
 
@@ -575,10 +578,11 @@ export class ConfigService implements OnModuleInit {
         }),
       );
 
-      // Create a permanent "latest" release so component_offering FK is satisfied
+      // Create a placeholder release (semver 0.0.0) so component_offering FK is satisfied.
+      // autoPublishInitialRevision will replace it with the real initial semver.
       await this.releaseRepo.save(
         this.releaseRepo.create({
-          version: 'latest',
+          version: '0.0.0',
           status: ReleaseStatusEnum.RELEASED,
           project: { id: project.id } as ProjectEntity,
           metadata: {},
@@ -631,6 +635,9 @@ export class ConfigService implements OnModuleInit {
     );
 
     this.logger.log(`Auto-published initial revision for config project of device ${deviceId}`);
+
+    // Replace placeholder release with the real initial semver
+    await this.updateConfigProjectRelease(projectId, initialSemVer);
 
     // Upload to S3 immediately
     await this.assembleAndCacheDeviceConfig(deviceId, initialSemVer);
@@ -718,8 +725,61 @@ export class ConfigService implements OnModuleInit {
       `Re-published config project for device ${deviceId} due to config map update (v${newSemVer})`,
     );
 
+    // Update the config release to reflect the new semver, re-pushing to any devices that had it before
+    await this.updateConfigProjectRelease(projectId, newSemVer);
+
     // Upload to S3 immediately
     await this.assembleAndCacheDeviceConfig(deviceId, newSemVer);
+  }
+
+  /**
+   * Replaces the single config release for a project with a new one carrying the given semver.
+   * Devices that had the old release pushed will be re-pushed automatically.
+   * The old release is deleted (ON DELETE CASCADE clears component_offering rows).
+   */
+  private async updateConfigProjectRelease(projectId: number, newSemVer: string): Promise<void> {
+    const offeringRepo = this.releaseRepo.manager.getRepository(ComponentOfferingEntity);
+
+    const oldRelease = await this.releaseRepo.findOne({
+      where: { project: { id: projectId } },
+      order: { sortOrder: 'DESC' },
+    });
+
+    let pushedDeviceIds: string[] = [];
+    if (oldRelease) {
+      const pushOfferings = await offeringRepo.find({
+        where: { release: { catalogId: oldRelease.catalogId }, action: OfferingActionEnum.PUSH },
+        relations: { device: true },
+      });
+      pushedDeviceIds = pushOfferings.filter((o) => !!o.device?.ID).map((o) => o.device.ID);
+
+      // Delete old release — ON DELETE CASCADE removes linked component_offering rows
+      await this.releaseRepo.delete(oldRelease.catalogId);
+    }
+
+    // Create new release with the real semver (ReleaseSubscriber sets catalogId + sortOrder)
+    const newRelease = await this.releaseRepo.save(
+      this.releaseRepo.create({
+        version: newSemVer,
+        status: ReleaseStatusEnum.RELEASED,
+        project: { id: projectId } as ProjectEntity,
+        metadata: {},
+      }),
+    );
+
+    // Re-push to devices that previously had the config offering
+    if (pushedDeviceIds.length > 0) {
+      const offerings = pushedDeviceIds.map((deviceId) => {
+        const entity = offeringRepo.create();
+        entity.action = OfferingActionEnum.PUSH;
+        (entity as any).release = { catalogId: newRelease.catalogId };
+        (entity as any).device = { ID: deviceId };
+        return entity;
+      });
+      await offeringRepo.upsert(offerings, ['device', 'release']);
+    }
+
+    this.logger.debug(`Config project ${projectId}: release updated to v${newSemVer} (catalogId: ${newRelease.catalogId})`);
   }
 
   private async populateDraftFromConfigMaps(draftId: number, deviceId: string, knownDeviceTypeIds?: number[]): Promise<void> {
