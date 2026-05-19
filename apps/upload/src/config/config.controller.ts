@@ -110,6 +110,11 @@ export class ConfigController {
     return this.configService.ensureDeviceConfigProject(payload);
   }
 
+  @MessagePattern(UploadTopics.CONFIG_PROVISION_PROJECT_CONTENT)
+  provisionProjectContent(@RpcPayload() payload: { projectId: number; deviceId: string; deviceTypeIds?: number[] }) {
+    return this.configService.provisionProjectContent(payload);
+  }
+
   @MessagePattern(UploadTopics.CONFIG_GET_ACTIVE_SEMVER_FOR_DEVICE)
   getActiveConfigSemVerForDevice(@RpcPayload() deviceId: string) {
     return this.configService.getActiveConfigSemVerForDevice(deviceId);

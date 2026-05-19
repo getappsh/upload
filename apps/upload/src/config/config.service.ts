@@ -16,6 +16,8 @@ import {
   ConfigRevisionStatus,
   ProjectEntity,
   ProjectType,
+  ReleaseEntity,
+  ReleaseStatusEnum,
 } from '@app/common/database/entities';
 import {
   AddConfigMapAssociationDto,
@@ -81,6 +83,7 @@ export class ConfigService implements OnModuleInit {
     @InjectRepository(ConfigRevisionEntity) private readonly revisionRepo: Repository<ConfigRevisionEntity>,
     @InjectRepository(ConfigGroupEntity) private readonly groupRepo: Repository<ConfigGroupEntity>,
     @InjectRepository(ConfigMapAssociationEntity) private readonly assocRepo: Repository<ConfigMapAssociationEntity>,
+    @InjectRepository(ReleaseEntity) private readonly releaseRepo: Repository<ReleaseEntity>,
     private readonly vaultService: VaultService,
     private readonly cacheService: ConfigCacheService,
     @Inject(MicroserviceName.DEVICE_SERVICE) private readonly deviceClient: MicroserviceClient,
@@ -572,11 +575,26 @@ export class ConfigService implements OnModuleInit {
         }),
       );
 
+      // Create a permanent "latest" release so component_offering FK is satisfied
+      await this.releaseRepo.save(
+        this.releaseRepo.create({
+          version: 'latest',
+          status: ReleaseStatusEnum.RELEASED,
+          project: { id: project.id } as ProjectEntity,
+          metadata: {},
+        }),
+      );
+
       await this.provisionDefaultConfigProject(project.id);
       await this.autoPublishInitialRevision(project.id, deviceId, deviceTypeIds);
     }
 
     return project.id;
+  }
+
+  async provisionProjectContent({ projectId, deviceId, deviceTypeIds }: { projectId: number; deviceId: string; deviceTypeIds?: number[] }): Promise<void> {
+    await this.provisionDefaultConfigProject(projectId);
+    await this.autoPublishInitialRevision(projectId, deviceId, deviceTypeIds);
   }
 
   async provisionDefaultConfigProject(projectId: number): Promise<void> {

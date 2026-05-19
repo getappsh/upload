@@ -65,6 +65,7 @@ export const UploadTopics = {
     CONFIG_GET_DEVICE_CONFIG_BY_VERSION: `getapp-upload.config.get-device-config-by-version${region}`,
     CONFIG_GET_ACTIVE_SEMVER_FOR_DEVICE: `getapp-upload.config.get-active-semver-for-device${region}`,
     CONFIG_ENSURE_DEVICE_PROJECT: `getapp-upload.config.ensure-device-project${region}`,
+    CONFIG_PROVISION_PROJECT_CONTENT: `getapp-upload.config.provision-project-content${region}`,
     CONFIG_CREATE_DRAFT_REVISION: `getapp-upload.config.create-draft-revision${region}`,
     CONFIG_DELETE_DRAFT_REVISION: `getapp-upload.config.delete-draft-revision${region}`,
 } as const
