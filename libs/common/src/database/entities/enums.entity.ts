@@ -167,6 +167,8 @@ export enum ReleaseStatusEnum {
 export enum ArtifactTypeEnum {
     FILE = 'file',
     DOCKER_IMAGE = 'docker_image',
+    RPM = 'rpm',
+    DEB = 'deb',
 }
 
 export enum ProjectType {
@@ -174,8 +176,16 @@ export enum ProjectType {
     APPLICATION = "application",
     LIB = "lib",
     BUNDLE = "bundle",
-    INFRA = "infra"
+    INFRA = "infra",
+    CONFIG = "config",
+    CONFIG_MAP = "config_map"
   }
+
+export enum ConfigRevisionStatus {
+    DRAFT = "draft",
+    ACTIVE = "active",
+    ARCHIVED = "archived",
+}
 
 
 // PLATFORM TYPES
