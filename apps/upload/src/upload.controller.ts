@@ -250,5 +250,23 @@ export class UploadController {
     this.logger.log(`Received SCAN_COMPLETED event for scanId=${event.scanId}, success=${event.success}`);
     await this.releasesService.linkSbomReport(event.scanId, event.reportBucketPath);
   }
+
+  @MessagePattern(UploadTopics.ARCHIVE_PROJECT_RELEASES)
+  async archiveProjectReleases(@RpcPayload('projectId') projectId: number): Promise<{ success: boolean }> {
+    await this.releasesService.archiveProjectReleases(projectId);
+    return { success: true };
+  }
+
+  @MessagePattern(UploadTopics.RESTORE_PROJECT_RELEASES)
+  async restoreProjectReleases(@RpcPayload('projectId') projectId: number): Promise<{ success: boolean }> {
+    await this.releasesService.restoreProjectReleases(projectId);
+    return { success: true };
+  }
+
+  @MessagePattern(UploadTopics.DELETE_PROJECT_RELEASES)
+  async deleteProjectReleases(@RpcPayload('projectId') projectId: number): Promise<{ success: boolean }> {
+    await this.releasesService.deleteProjectReleases(projectId);
+    return { success: true };
+  }
 }
   
