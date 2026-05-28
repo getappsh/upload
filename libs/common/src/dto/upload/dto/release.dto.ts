@@ -146,11 +146,11 @@ export class SetReleaseDto {
 
   @ApiProperty({ 
     required: false, 
-    enum: [ReleaseStatusEnum.DRAFT, ReleaseStatusEnum.IN_REVIEW, ReleaseStatusEnum.ARCHIVED, ReleaseStatusEnum.RELEASED],
+    enum: ReleaseStatusEnum,
     description: 'Explicitly set the release status. Allowed values: draft, in_review, archived, released. Takes precedence over isDraft when provided.'
   })
   @IsOptional()
-  @IsEnum([ReleaseStatusEnum.DRAFT, ReleaseStatusEnum.IN_REVIEW, ReleaseStatusEnum.ARCHIVED, ReleaseStatusEnum.RELEASED])
+  @IsEnum(ReleaseStatusEnum)
   status?: ReleaseStatusEnum;
 
   @ApiProperty({ required: false, type: String, isArray: true, description: 'List of dependencies. Providing an empty array will remove all dependencies. Omitting this field or setting it to null will leave dependencies unchanged.' })
@@ -321,6 +321,9 @@ export class ComponentV2Dto {
   @ApiProperty({ required: false, description: 'Label associated with the project' })
   label?: string;
 
+  @ApiProperty({ required: false, description: 'Application category (user or technician)' })
+  applicationCategory?: string;
+
   @ApiProperty({ required: false })
   releaseNotes?: string;
 
@@ -365,6 +368,7 @@ export class ComponentV2Dto {
     dto.projectId = release?.project?.id;
     dto.displayName = release?.project?.projectName ?? undefined;
     dto.label = release?.project?.label?.name ?? undefined;
+    dto.applicationCategory = release?.project?.applicationCategory ?? undefined;
     dto.projectTypeV2 = release.project.projectType;
     dto.type = ProjectType.PRODUCT;
     // release data

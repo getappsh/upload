@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import { IsArray, IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, ArrayNotEmpty } from 'class-validator';
 import { ConfigRevisionStatus } from '@app/common/database/entities';
 
@@ -36,8 +37,6 @@ export class ConfigGroupDto {
 }
 
 export class UpsertConfigGroupDto {
-  @ApiProperty({ description: 'Project identifier (id or name)' })
-  @IsNotEmpty()
   projectIdentifier: number | string;
 
   @ApiProperty()
@@ -86,8 +85,6 @@ export class UpsertConfigGroupDto {
 }
 
 export class DeleteConfigGroupDto {
-  @ApiProperty()
-  @IsNotEmpty()
   projectIdentifier: number | string;
 
   @ApiProperty()
@@ -130,14 +127,28 @@ export class ConfigRevisionDto {
 }
 
 export class ApplyConfigRevisionDto {
-  @ApiProperty({ description: 'Project identifier (id or name)' })
-  @IsNotEmpty()
   projectIdentifier: number | string;
 
   @ApiProperty({ required: false, description: 'Who is applying (email / user id)' })
   @IsString()
   @IsOptional()
   appliedBy?: string;
+}
+
+export class GetConfigRevisionsQueryDto {
+  @ApiProperty({ required: false, description: 'Include groups in each revision' })
+  @IsBoolean()
+  @IsOptional()
+  @Type(() => Boolean)
+  includeGroups?: boolean;
+}
+
+export class GetConfigRevisionQueryDto {
+  @ApiProperty({ required: false })
+  @IsBoolean()
+  @IsOptional()
+  @Type(() => Boolean)
+  includeGroups?: boolean;
 }
 
 export class CreateDraftRevisionDto {
@@ -157,6 +168,7 @@ export class GetConfigRevisionsDto {
   @IsNotEmpty()
   projectIdentifier: number | string;
 
+  /** When true, include groups and entries in each revision */
   @ApiProperty({ required: false })
   @IsBoolean()
   @IsOptional()
@@ -168,6 +180,7 @@ export class GetConfigRevisionByIdDto {
   @IsInt()
   revisionId: number;
 
+  /** When true, include groups and entries */
   @ApiProperty({ required: false })
   @IsBoolean()
   @IsOptional()
@@ -196,8 +209,7 @@ export class ConfigMapAssociationDto {
 }
 
 export class AddConfigMapAssociationDto {
-  @ApiProperty({ description: 'ConfigMap project identifier (id or name)' })
-  @IsNotEmpty()
+ 
   configMapProjectIdentifier: number | string;
 
   @ApiProperty({ required: false, description: 'Device type ID to associate with. Null = global.' })
@@ -219,6 +231,13 @@ export class RemoveConfigMapAssociationDto {
   associationId: number;
 }
 
+export class GetConfigMapAssociationsDto {
+  @ApiProperty({ description: 'ConfigMap project identifier (id or name)' })
+  @IsNotEmpty()
+  configMapProjectIdentifier: number | string;
+}
+
+/** A ConfigMap project that references a given CONFIG project's device type */
 export class ConfigMapForProjectDto {
   @ApiProperty({ description: 'ConfigMap project ID' })
   configMapProjectId: number;
@@ -233,12 +252,20 @@ export class ConfigMapForProjectDto {
   deviceTypeId: number | null;
 }
 
+export class GetConfigMapsForProjectDto {
+  @ApiProperty({ description: 'CONFIG project identifier (id or name)' })
+  @IsNotEmpty()
+  projectIdentifier: number | string;
+}
+
 // ---------------------------------------------------------------------------
 // Agent / device config retrieval
 // ---------------------------------------------------------------------------
 
+/** Parsed content of a single merged group. Supports nested objects from YAML. */
 export type ConfigGroupValuesMap = Record<string, any>;
 
+/** The final assembled config returned to the agent. */
 export class DeviceConfigDto {
   @ApiProperty({ description: 'Device ID this config belongs to' })
   deviceId: string;
@@ -249,9 +276,11 @@ export class DeviceConfigDto {
   @ApiProperty({ required: false, description: 'Semantic version of the active revision when this config was assembled' })
   semVer: string | null;
 
+  /** Group name → parsed YAML content. Supports complex nested objects. Sensitive groups are always resolved. */
   @ApiProperty({ description: 'Assembled config groups keyed by group name' })
   groups: Record<string, ConfigGroupValuesMap>;
 
+  /** ISO timestamp of when this config was last computed */
   @ApiProperty()
   computedAt: string;
 }
@@ -267,6 +296,10 @@ export class GetDeviceConfigByVersionDto {
   @IsNotEmpty()
   semver: string;
 
+  /**
+   * When true (default) vault secrets are resolved to plaintext.
+   * Set to false to retrieve raw (vault-ref) values.
+   */
   @ApiProperty({ required: false })
   @IsBoolean()
   @IsOptional()
@@ -279,8 +312,33 @@ export class GetDeviceConfigDto {
   @IsNotEmpty()
   deviceId: string;
 
+  /**
+   * When true (default when called by agent) vault secrets are resolved.
+   * Set to false to get the config without secret values (for caching).
+   */
   @ApiProperty({ required: false })
   @IsBoolean()
   @IsOptional()
   resolveSecrets?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// GitOps config group sync
+// ---------------------------------------------------------------------------
+
+export class GitConfigGroupDto {
+  @ApiProperty({ description: 'Group name' })
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @ApiProperty({ required: false, description: 'Path to a YAML file in the git repo whose key-values populate this group' })
+  @IsString()
+  @IsOptional()
+  gitFilePath?: string;
+
+  @ApiProperty({ required: false, description: 'When true this is the globals group' })
+  @IsBoolean()
+  @IsOptional()
+  isGlobal?: boolean;
 }
