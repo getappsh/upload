@@ -176,8 +176,16 @@ export enum ProjectType {
     APPLICATION = "application",
     LIB = "lib",
     BUNDLE = "bundle",
-    INFRA = "infra"
+    INFRA = "infra",
+    CONFIG = "config",
+    CONFIG_MAP = "config_map"
   }
+
+export enum ConfigRevisionStatus {
+    DRAFT = "draft",
+    ACTIVE = "active",
+    ARCHIVED = "archived",
+}
 
 
 // PLATFORM TYPES
@@ -197,4 +205,9 @@ export enum NetworkType {
   BRIDGED = 'BRIDGED',
   HOST_ONLY = 'HOST_ONLY',
   CUSTOM = 'CUSTOM',
+}
+
+export enum ApplicationCategory {
+    USER = "user",
+    TECHNICIAN = "technician"
 }
