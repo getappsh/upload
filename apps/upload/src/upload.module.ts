@@ -1,7 +1,7 @@
 import { DatabaseModule, UploadJwtConfigService } from '@app/common';
 import { RuleModule } from '@app/common/rules';
 import { S3Service } from '@app/common/AWS/s3.service';
-import { FileUploadEntity, RegulationEntity, RegulationStatusEntity, ReleaseArtifactEntity, ReleaseEntity, UploadVersionEntity, RuleFieldEntity, RuleEntity, RuleReleaseEntity, RuleDeviceTypeEntity, RuleDeviceEntity, RuleOsEntity, DeliveryStatusEntity, DeployStatusEntity } from '@app/common/database/entities';
+import { FileUploadEntity, RegulationEntity, RegulationStatusEntity, ReleaseArtifactEntity, ReleaseEntity, UploadVersionEntity, RuleFieldEntity, RuleEntity, RuleReleaseEntity, RuleDeviceTypeEntity, RuleDeviceEntity, RuleOsEntity, DeliveryStatusEntity, DeployStatusEntity, ProjectEntity, ConfigRevisionEntity, ConfigGroupEntity, ConfigMapAssociationEntity } from '@app/common/database/entities';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -26,6 +26,10 @@ import { PolicyService } from './policy.service';
 import { PolicyController } from './policy.controller';
 import { FileProcessingService } from '@app/common/AWS/file-processing.service';
 import { PermissionsModule } from '@app/common/permissions/permissions.module';
+import { VaultModule } from '@app/common/vault';
+import { ConfigService as AppConfigService } from './config/config.service';
+import { ConfigController } from './config/config.controller';
+import { ConfigCacheService } from './config/config-cache.service';
 
 @Module({
   imports: [
@@ -77,7 +81,11 @@ import { PermissionsModule } from '@app/common/permissions/permissions.module';
        RuleDeviceEntity,
        RuleOsEntity,
       DeliveryStatusEntity,
-      DeployStatusEntity]),
+      DeployStatusEntity,
+      ProjectEntity,
+      ConfigRevisionEntity,
+      ConfigGroupEntity,
+      ConfigMapAssociationEntity]),
     SafeCronModule,
     MicroserviceModule.register({
       name: MicroserviceName.PROJECT_MANAGEMENT_SERVICE,
@@ -85,8 +93,9 @@ import { PermissionsModule } from '@app/common/permissions/permissions.module';
       id: 'upload'
     }),
     PermissionsModule.forRoot(),
+    VaultModule,
   ],
-  controllers: [UploadController, PolicyController],
+  controllers: [UploadController, PolicyController, ConfigController],
   providers: [
     UploadService, 
     S3Service, 
@@ -100,6 +109,8 @@ import { PermissionsModule } from '@app/common/permissions/permissions.module';
     CosignSignatureService,
     PolicyService,
     FileProcessingService,
+    AppConfigService,
+    ConfigCacheService,
     {
       provide: PROJECT_ACCESS_SERVICE,
       useExisting: UploadService
