@@ -40,6 +40,10 @@ export class BatteryStatusDto {
   @IsOptional()
   @IsBoolean()
   isVirtual?: boolean;
+
+  toString() {
+    return JSON.stringify(this)
+  }
 }
 
 /** Mirrors agent DeviceMetaData — physical and operational device properties */
@@ -95,6 +99,10 @@ export class DeviceMetaDataDto {
   // Note: `additionalProperties: true` and the class description are injected at runtime via
   // the `patchSchemas` post-processor in apps/api/src/main.ts (not settable via decorators in @nestjs/swagger v6).
   [key: string]: any;
+
+  toString() {
+    return JSON.stringify(this)
+  }
 }
 
 /**
@@ -181,8 +189,14 @@ export class DeviceDataDto {
 
   @ApiProperty({ type: () => DeviceMetaDataDto, required: false })
   @IsOptional()
-  @ValidateNested()
+  // @ValidateNested() intentionally omitted: metadata carries arbitrary extra properties
+  // from the device agent. Enabling @ValidateNested() causes ValidationPipe whitelist:true
+  // to recurse into DeviceMetaDataDto and strip any property that lacks a decorator.
   @Type(() => DeviceMetaDataDto)
   metadata?: DeviceMetaDataDto;
+
+  toString() {
+    return JSON.stringify(this)
+  }
 }
 
