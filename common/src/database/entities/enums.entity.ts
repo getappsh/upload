@@ -81,7 +81,8 @@ export enum DeployStatusEnum {
 export enum ItemTypeEnum {
     SOFTWARE = 'software',
     MAP = 'map',
-    CACHE = 'cache'
+    CACHE = 'cache',
+    CONFIG = 'config'
 }
 
 export enum MapImportStatusEnum {
@@ -186,6 +187,11 @@ export enum ApplicationCategory {
     TECHNICIAN = "technician"
   }
 
+export enum ConfigRevisionStatus {
+    DRAFT = "draft",
+    ACTIVE = "active",
+    ARCHIVED = "archived",
+}
 
 // PLATFORM TYPES
 export enum CPUArchitecture {
@@ -205,3 +211,4 @@ export enum NetworkType {
   HOST_ONLY = 'HOST_ONLY',
   CUSTOM = 'CUSTOM',
 }
+
