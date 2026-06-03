@@ -111,7 +111,8 @@ export class ConfigController {
   }
 
   @MessagePattern(UploadTopics.CONFIG_GET_ACTIVE_SEMVER_FOR_DEVICE)
-  getActiveConfigSemVerForDevice(@RpcPayload() deviceId: string) {
+  getActiveConfigSemVerForDevice(@RpcPayload() payload: string | { deviceId: string }) {
+    const deviceId = typeof payload === 'string' ? payload : payload.deviceId;
     return this.configService.getActiveConfigSemVerForDevice(deviceId);
   }
 }

@@ -48,6 +48,17 @@ const CONFIG_VAULT_KEY_SECRET_NAME = (groupId: number, keyPath: string) =>
   `config-group-${groupId}-key-${keyPath.replace(/\./g, '__')}`;
 
 // ---------------------------------------------------------------------------
+// In-memory project cache to avoid repeated RPC calls to project-management
+// ---------------------------------------------------------------------------
+const PROJECT_CACHE_TTL_MS = 30_000; // 30 seconds
+
+interface CachedProject {
+  data: any;
+  expiresAt: number;
+}
+
+
+// ---------------------------------------------------------------------------
 // Dot-notation path helpers for nested YAML objects
 // ---------------------------------------------------------------------------
 
@@ -78,6 +89,7 @@ function deleteByPath(obj: Record<string, any>, path: string): void {
 @Injectable()
 export class ConfigService implements OnModuleInit {
   private readonly logger = new Logger(ConfigService.name);
+  private readonly projectCache = new Map<string, CachedProject>();
 
   constructor(
     @InjectRepository(ConfigRevisionEntity) private readonly revisionRepo: Repository<ConfigRevisionEntity>,
@@ -110,14 +122,31 @@ export class ConfigService implements OnModuleInit {
   // ---------------------------------------------------------------------------
 
   private async getProjectByIdentifier(identifier: number | string): Promise<any | null> {
-    return lastValueFrom(
+    const cacheKey = `id:${identifier}`;
+    const cached = this.projectCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.data;
+
+    const project = await lastValueFrom(
       this.projectManagementClient.send(ProjectManagementTopics.GET_PROJECT_BY_IDENTIFIER, {
         projectIdentifier: identifier,
       }),
     ).catch(() => null);
+
+    if (project) {
+      const expiresAt = Date.now() + PROJECT_CACHE_TTL_MS;
+      this.projectCache.set(cacheKey, { data: project, expiresAt });
+      this.projectCache.set(`id:${project.id}`, { data: project, expiresAt });
+      if (project.name) this.projectCache.set(`name:${project.name}:${project.projectType}`, { data: project, expiresAt });
+    }
+
+    return project;
   }
 
   private async getProjectByNameAndType(name: string, projectType: ProjectType): Promise<any | null> {
+    const cacheKey = `name:${name}:${projectType}`;
+    const cached = this.projectCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.data;
+
     const projects = await lastValueFrom(
       this.projectManagementClient.send(ProjectManagementTopics.GET_PROJECTS, {
         page: 1,
@@ -129,6 +158,11 @@ export class ConfigService implements OnModuleInit {
 
     const project = projects?.data?.[0];
     if (!project || project.projectType !== projectType) return null;
+
+    const expiresAt = Date.now() + PROJECT_CACHE_TTL_MS;
+    this.projectCache.set(cacheKey, { data: project, expiresAt });
+    this.projectCache.set(`id:${project.id}`, { data: project, expiresAt });
+
     return project;
   }
 
@@ -170,7 +204,7 @@ export class ConfigService implements OnModuleInit {
     const maxResult = await this.revisionRepo
       .createQueryBuilder('r')
       .select('MAX(r.revisionNumber)', 'max')
-      .where('r.projectId = :projectId', { projectId })
+      .where('"project_id" = :projectId', { projectId })
       .getRawOne<{ max: number | null }>();
 
     const nextNumber = (maxResult?.max ?? 0) + 1;
@@ -306,16 +340,17 @@ export class ConfigService implements OnModuleInit {
       ProjectType.CONFIG_MAP,
     ]);
 
-    const draft = await this.revisionRepo.findOne({
-      where: { projectId: project.id, status: ConfigRevisionStatus.DRAFT },
-      relations: { groups: true },
-    });
+    const [draft, previousActive] = await Promise.all([
+      this.revisionRepo.findOne({
+        where: { projectId: project.id, status: ConfigRevisionStatus.DRAFT },
+        relations: { groups: true },
+      }),
+      this.revisionRepo.findOne({
+        where: { projectId: project.id, status: ConfigRevisionStatus.ACTIVE },
+        relations: { groups: true },
+      }),
+    ]);
     if (!draft) throw new NotFoundException(`No draft revision found for project '${dto.projectIdentifier}'`);
-
-    const previousActive = await this.revisionRepo.findOne({
-      where: { projectId: project.id, status: ConfigRevisionStatus.ACTIVE },
-      relations: { groups: true },
-    });
 
     await this.revisionRepo.update(
       { projectId: project.id, status: ConfigRevisionStatus.ACTIVE },
@@ -392,37 +427,39 @@ export class ConfigService implements OnModuleInit {
       ProjectType.CONFIG_MAP,
     ]);
 
-    const existing = await this.revisionRepo.findOne({
-      where: { projectId: project.id, status: ConfigRevisionStatus.DRAFT },
-    });
+    const [existing, maxResult] = await Promise.all([
+      this.revisionRepo.findOne({
+        where: { projectId: project.id, status: ConfigRevisionStatus.DRAFT },
+      }),
+      this.revisionRepo
+        .createQueryBuilder('r')
+        .select('MAX(r.revisionNumber)', 'max')
+        .where('r.projectId = :projectId', { projectId: project.id })
+        .getRawOne<{ max: number | null }>(),
+    ]);
     if (existing) throw new BadRequestException(`A draft revision already exists for project '${dto.projectIdentifier}'`);
 
-    const maxResult = await this.revisionRepo
-      .createQueryBuilder('r')
-      .select('MAX(r.revisionNumber)', 'max')
-      .where('r.projectId = :projectId', { projectId: project.id })
-      .getRawOne<{ max: number | null }>();
     const nextNumber = (maxResult?.max ?? 0) + 1;
 
     const draft = await this.revisionRepo.save(
       this.revisionRepo.create({ projectId: project.id, revisionNumber: nextNumber, status: ConfigRevisionStatus.DRAFT }),
     );
 
-    const source =
-      (await this.revisionRepo.findOne({
+    const [activeSource, archivedSource] = await Promise.all([
+      this.revisionRepo.findOne({
         where: { projectId: project.id, status: ConfigRevisionStatus.ACTIVE },
         relations: { groups: true },
-      })) ??
-      (await this.revisionRepo.findOne({
+      }),
+      this.revisionRepo.findOne({
         where: { projectId: project.id, status: ConfigRevisionStatus.ARCHIVED },
         order: { revisionNumber: 'DESC' },
         relations: { groups: true },
-      }));
+      }),
+    ]);
+    const source = activeSource ?? archivedSource;
 
     if (source?.groups?.length) {
-      for (const g of source.groups) {
-        await this.cloneGroupToRevision(g, draft.id, g.position);
-      }
+      await Promise.all(source.groups.map((g) => this.cloneGroupToRevision(g, draft.id, g.position)));
       draft.groups = await this.groupRepo.find({ where: { revisionId: draft.id } });
     }
 
