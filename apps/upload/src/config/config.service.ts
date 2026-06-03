@@ -511,6 +511,8 @@ export class ConfigService implements OnModuleInit {
     const project = await this.requireProject(dto.configMapProjectIdentifier, ProjectType.CONFIG_MAP);
 
     const created: ConfigMapAssociationDto[] = [];
+    const newlyAddedDeviceTypeIds: number[] = [];
+    const newlyAddedDeviceIds: string[] = [];
 
     if (hasDeviceType) {
       await lastValueFrom(
@@ -532,6 +534,7 @@ export class ConfigService implements OnModuleInit {
           }),
         );
         created.push({ id: assoc.id, configMapProjectId: assoc.configMapProjectId, deviceTypeId: assoc.deviceTypeId, deviceId: null, configProjectId: null });
+        newlyAddedDeviceTypeIds.push(dto.deviceTypeId!);
       }
     }
 
@@ -552,7 +555,20 @@ export class ConfigService implements OnModuleInit {
             }),
           );
           created.push({ id: assoc.id, configMapProjectId: assoc.configMapProjectId, deviceTypeId: null, deviceId: assoc.deviceId ?? null, configProjectId: null });
+          newlyAddedDeviceIds.push(deviceId);
         }
+      }
+    }
+
+    // Cascade config map groups only to NEWLY associated devices (skip existing associations)
+    if (newlyAddedDeviceTypeIds.length > 0 || newlyAddedDeviceIds.length > 0) {
+      const activeRevision = await this.revisionRepo.findOne({
+        where: { projectId: project.id, status: ConfigRevisionStatus.ACTIVE },
+      });
+      if (activeRevision) {
+        this.cascadeConfigMapToSpecificDevices(project.id, newlyAddedDeviceTypeIds, newlyAddedDeviceIds).catch((err) =>
+          this.logger.error(`Config map cascade after association failed for project ${project.id}: ${(err as Error)?.message}`),
+        );
       }
     }
 
@@ -570,6 +586,36 @@ export class ConfigService implements OnModuleInit {
     const project = await this.requireProject(configMapProjectIdentifier, ProjectType.CONFIG_MAP);
     const assocs = await this.assocRepo.find({ where: { configMapProjectId: project.id, configProjectId: IsNull() } });
     return assocs.map((a) => ({ id: a.id, configMapProjectId: a.configMapProjectId, deviceTypeId: a.deviceTypeId, deviceId: a.deviceId ?? null, configProjectId: null }));
+  }
+
+  async getConfigMapAffectedDevices(configMapProjectIdentifier: number | string): Promise<{ deviceId: string; associationType: 'deviceType' | 'deviceId'; associationValue: string }[]> {
+    const project = await this.requireProject(configMapProjectIdentifier, ProjectType.CONFIG_MAP);
+    const assocs = await this.assocRepo.find({ where: { configMapProjectId: project.id, configProjectId: IsNull() } });
+    if (assocs.length === 0) return [];
+
+    const result: { deviceId: string; associationType: 'deviceType' | 'deviceId'; associationValue: string }[] = [];
+
+    // Direct device-id associations
+    for (const a of assocs) {
+      if (a.deviceId) {
+        result.push({ deviceId: a.deviceId, associationType: 'deviceId', associationValue: a.deviceId });
+      }
+    }
+
+    // Device-type associations → resolve to device IDs
+    const typeIds = [...new Set(assocs.filter((a) => a.deviceTypeId != null).map((a) => a.deviceTypeId!))];
+    if (typeIds.length > 0) {
+      for (const typeId of typeIds) {
+        const deviceIds = await lastValueFrom(
+          this.deviceClient.send<string[]>(DeviceTopics.GET_DEVICE_IDS_BY_TYPE_IDS, { typeIds: [typeId] }),
+        ).catch(() => [] as string[]);
+        for (const id of deviceIds) {
+          result.push({ deviceId: id, associationType: 'deviceType', associationValue: String(typeId) });
+        }
+      }
+    }
+
+    return result;
   }
 
   async getConfigMapsForProject(projectIdentifier: number | string): Promise<ConfigMapForProjectDto[]> {
@@ -704,6 +750,37 @@ export class ConfigService implements OnModuleInit {
         await this.refreshConfigProjectRevision(configProject.id, deviceId);
       } catch (err) {
         this.logger.error(`Failed to cascade config map update to ${projectName}: ${(err as Error)?.message}`);
+      }
+    }
+  }
+
+  private async cascadeConfigMapToSpecificDevices(
+    configMapProjectId: number,
+    newDeviceTypeIds: number[],
+    newDeviceIds: string[],
+  ): Promise<void> {
+    const deviceIdSet = new Set<string>(newDeviceIds);
+
+    if (newDeviceTypeIds.length > 0) {
+      const deviceIds = await lastValueFrom(
+        this.deviceClient.send<string[]>(DeviceTopics.GET_DEVICE_IDS_BY_TYPE_IDS, { typeIds: newDeviceTypeIds }),
+      ).catch(() => [] as string[]);
+      for (const id of deviceIds) deviceIdSet.add(id);
+    }
+
+    if (deviceIdSet.size === 0) return;
+
+    this.logger.log(`Cascading config map ${configMapProjectId} to ${deviceIdSet.size} newly associated device(s)`);
+
+    for (const deviceId of deviceIdSet) {
+      const projectName = `config:${deviceId}`;
+      const configProject = await this.getProjectByNameAndType(projectName, ProjectType.CONFIG);
+      if (!configProject) continue;
+
+      try {
+        await this.refreshConfigProjectRevision(configProject.id, deviceId);
+      } catch (err) {
+        this.logger.error(`Failed to cascade config map to newly associated ${projectName}: ${(err as Error)?.message}`);
       }
     }
   }

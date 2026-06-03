@@ -86,6 +86,11 @@ export class ConfigController {
     return this.configService.getConfigMapAssociations(payload.configMapProjectIdentifier);
   }
 
+  @MessagePattern(UploadTopics.CONFIG_GET_MAP_AFFECTED_DEVICES)
+  getConfigMapAffectedDevices(@RpcPayload() payload: { configMapProjectIdentifier: number | string }) {
+    return this.configService.getConfigMapAffectedDevices(payload.configMapProjectIdentifier);
+  }
+
   @MessagePattern(UploadTopics.CONFIG_GET_CONFIG_MAPS_FOR_PROJECT)
   getConfigMapsForProject(@RpcPayload() payload: { projectIdentifier: number | string }) {
     return this.configService.getConfigMapsForProject(payload.projectIdentifier);
