@@ -90,8 +90,9 @@ export class ReleaseService implements OnModuleInit {
   async setRelease(dto: SetReleaseDto, userEmail?: string): Promise<ReleaseDto> {
     this.logger.log(`Setting release for project: ${dto.projectId}, version: ${dto.version}`);
 
-    const releaseEntity = await this.releaseRepo.findOneBy({ project: { id: dto.projectId }, version: dto.version }) ?? this.releaseRepo.create();
+    const releaseEntity = await this.releaseRepo.findOne({ where: { project: { id: dto.projectId }, version: dto.version }, relations: { project: true } }) ?? this.releaseRepo.create();
     
+    const projectName = releaseEntity.project?.name ?? dto.projectIdentifier;
     const isNewRelease = !releaseEntity.catalogId;
 
     // Check permission if trying to update an existing readonly imported release
@@ -101,8 +102,9 @@ export class ReleaseService implements OnModuleInit {
 
     releaseEntity.project = { id: dto.projectId } as unknown as ProjectEntity;
     releaseEntity.version = dto.version;
-    releaseEntity.name = dto?.name;
-    releaseEntity.releaseNotes = dto?.releaseNotes;;
+    releaseEntity.name = dto?.name != null ? dto.name : `${projectName}-v${dto.version}`;
+    releaseEntity.releaseNotes = dto?.releaseNotes;
+
     const normalizedMetadata = dto?.metadata ? { ...dto.metadata } : undefined;
     if (normalizedMetadata && normalizedMetadata.installationSize !== undefined) {
       const parsedInstallationSize = Number(normalizedMetadata.installationSize);
