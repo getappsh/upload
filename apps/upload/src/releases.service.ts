@@ -128,8 +128,8 @@ export class ReleaseService implements OnModuleInit {
         releaseEntity.status = ReleaseStatusEnum.IN_REVIEW;
       }
     } else if (dto?.status === ReleaseStatusEnum.RELEASED) {
-      // Only allow setting RELEASED directly if user has the elevated permission
-      this.checkReadonlyReleasePermission({ ...releaseEntity, status: ReleaseStatusEnum.RELEASED } as ReleaseEntity);
+      // Only block if the release is already in a readonly state (released/error)
+      this.checkReadonlyReleasePermission(releaseEntity);
       releaseEntity.status = ReleaseStatusEnum.RELEASED;
     } else if (dto?.isDraft === true) {
       releaseEntity.status = ReleaseStatusEnum.DRAFT
