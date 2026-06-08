@@ -16,6 +16,7 @@ import { MinioClientService } from "@app/common/AWS/minio-client.service";
 import { ConfigService } from "@nestjs/config";
 import { ClsService } from 'nestjs-cls';
 import { ApiRole, PermissionsService } from "@app/common";
+import { RuleType } from '@app/common/rules/enums/rule.enums';
 
 
 @Injectable()
@@ -89,8 +90,9 @@ export class ReleaseService implements OnModuleInit {
   async setRelease(dto: SetReleaseDto, userEmail?: string): Promise<ReleaseDto> {
     this.logger.log(`Setting release for project: ${dto.projectId}, version: ${dto.version}`);
 
-    const releaseEntity = await this.releaseRepo.findOneBy({ project: { id: dto.projectId }, version: dto.version }) ?? this.releaseRepo.create();
+    const releaseEntity = await this.releaseRepo.findOne({ where: { project: { id: dto.projectId }, version: dto.version }, relations: { project: true } }) ?? this.releaseRepo.create();
     
+    const projectName = releaseEntity.project?.name ?? dto.projectIdentifier;
     const isNewRelease = !releaseEntity.catalogId;
 
     // Check permission if trying to update an existing readonly imported release
@@ -100,8 +102,9 @@ export class ReleaseService implements OnModuleInit {
 
     releaseEntity.project = { id: dto.projectId } as unknown as ProjectEntity;
     releaseEntity.version = dto.version;
-    releaseEntity.name = dto?.name;
-    releaseEntity.releaseNotes = dto?.releaseNotes;;
+    releaseEntity.name = dto?.name != null ? dto.name : `${projectName}-v${dto.version}`;
+    releaseEntity.releaseNotes = dto?.releaseNotes;
+
     const normalizedMetadata = dto?.metadata ? { ...dto.metadata } : undefined;
     if (normalizedMetadata && normalizedMetadata.installationSize !== undefined) {
       const parsedInstallationSize = Number(normalizedMetadata.installationSize);
@@ -110,7 +113,25 @@ export class ReleaseService implements OnModuleInit {
         : 0;
     }
     releaseEntity.metadata = normalizedMetadata;
-    if (dto?.isDraft === true) {
+
+    // Explicit status override takes precedence over isDraft flag
+    if (dto?.status === ReleaseStatusEnum.ARCHIVED) {
+      // Archiving: allowed from any non-archived state
+      if (releaseEntity.status !== ReleaseStatusEnum.ARCHIVED) {
+        releaseEntity.status = ReleaseStatusEnum.ARCHIVED;
+        // Will emit archived event after save
+      }
+    } else if (dto?.status === ReleaseStatusEnum.DRAFT) {
+      releaseEntity.status = ReleaseStatusEnum.DRAFT;
+    } else if (dto?.status === ReleaseStatusEnum.IN_REVIEW) {
+      if (releaseEntity.status !== ReleaseStatusEnum.RELEASED && releaseEntity.status !== ReleaseStatusEnum.ERROR) {
+        releaseEntity.status = ReleaseStatusEnum.IN_REVIEW;
+      }
+    } else if (dto?.status === ReleaseStatusEnum.RELEASED) {
+      // Only block if the release is already in a readonly state (released/error)
+      this.checkReadonlyReleasePermission(releaseEntity);
+      releaseEntity.status = ReleaseStatusEnum.RELEASED;
+    } else if (dto?.isDraft === true) {
       releaseEntity.status = ReleaseStatusEnum.DRAFT
     } else if (dto?.isDraft === false &&
         releaseEntity.status !== ReleaseStatusEnum.ERROR &&
@@ -142,6 +163,13 @@ export class ReleaseService implements OnModuleInit {
     }
     // Calculate and update totalSize after saving
     await this.updateTotalSize(dto.projectId, dto.version);
+
+    // When a release is archived, update the latest pointer and notify offering
+    if (dto?.status === ReleaseStatusEnum.ARCHIVED) {
+      await this.updateLatestForProject(dto.projectId);
+      this.sendProjectReleasesChangedEvent(dto.projectId, releaseEntity.catalogId, ReleaseStatusEnum.ARCHIVED);
+      return this.getRelease(dto);
+    }
 
     await this.refreshReleaseState(dto);
 
@@ -302,7 +330,34 @@ export class ReleaseService implements OnModuleInit {
         .catch(err => this.logger.error(`Error deleting release artifact: ${artifact.id}, error: ${err}`));
     }
 
+    // Collect POLICY rule IDs associated with this release before the cascade deletes the associations
+    const policyAssociations = await this.ruleReleaseRepo.find({
+      where: { release: { catalogId: releaseEntity.catalogId } },
+      relations: ['rule'],
+    });
+    const policyRuleIds = policyAssociations
+      .filter(a => a.rule?.type === RuleType.POLICY && a.rule.id !== this.DEFAULT_RULE_ID)
+      .map(a => a.rule.id);
+
+    if (policyAssociations.length > 0) {
+      this.logger.log(`Removing ${policyAssociations.length} policy association(s) for release ${releaseEntity.catalogId}: [${policyAssociations.map(a => a.rule?.id).join(', ')}]`);
+    }
+
     await this.releaseRepo.delete({ project: { id: params.projectId }, version: params.version });
+
+    // Delete any policies that have no remaining release associations
+    if (policyRuleIds.length > 0) {
+      const remainingAssociations = await this.ruleReleaseRepo.find({
+        where: { rule: { id: In(policyRuleIds) } },
+        relations: ['rule'],
+      });
+      const rulesWithAssociations = new Set(remainingAssociations.map(a => a.rule.id));
+      const orphanedPolicyIds = policyRuleIds.filter(id => !rulesWithAssociations.has(id));
+      if (orphanedPolicyIds.length > 0) {
+        this.logger.log(`Deleting ${orphanedPolicyIds.length} orphaned policies after release deletion: ${orphanedPolicyIds.join(', ')}`);
+        await this.ruleRepo.delete({ id: In(orphanedPolicyIds) });
+      }
+    }
 
     this.sendProjectReleasesChangedEvent(params.projectId, release.id, ReleaseEventEnum.DELETED);
 
@@ -331,6 +386,93 @@ export class ReleaseService implements OnModuleInit {
       })
       .where("project_id = :projectId", { projectId, status: ReleaseStatusEnum.RELEASED })
       .execute();
+  }
+
+  /**
+   * Permanently deletes all releases for a project.
+   * Before deleting, clears any cross-project dependency links where external
+   * releases depend on this project's releases (unblocking the FK constraint).
+   * Then calls deleteRelease() for each release so S3/artifact cleanup runs normally.
+   */
+  async deleteProjectReleases(projectId: number): Promise<void> {
+    this.logger.log(`Permanently deleting all releases for project: ${projectId}`);
+
+    const releases = await this.releaseRepo.find({
+      select: { catalogId: true, version: true },
+      where: { project: { id: projectId } },
+    });
+
+    if (releases.length === 0) {
+      this.logger.debug(`No releases to delete for project: ${projectId}`);
+      return;
+    }
+
+    const catalogIds = releases.map(r => r.catalogId);
+
+    // Remove all dependency rows where other releases (outside this project) depend on
+    // our releases as a dependency — these are the rows that block deletion (NO ACTION FK).
+    await this.releaseRepo.manager.query(
+      `DELETE FROM "release_dependencies" WHERE "dependency_release_id" = ANY($1)`,
+      [catalogIds],
+    );
+
+    // Now delete each release individually to reuse S3/artifact/regulation cleanup
+    for (const release of releases) {
+      await this.deleteRelease({ projectId, projectIdentifier: projectId, version: release.version }).catch(err => {
+        this.logger.error(`Error deleting release ${release.version} for project ${projectId}: ${err?.message}`);
+      });
+    }
+
+    this.logger.log(`Deleted ${releases.length} releases for project: ${projectId}`);
+  }
+
+  /**
+   * Archives all non-archived releases for a given project.
+   * Called when a project is archived via the delete-project endpoint.
+   */
+  async archiveProjectReleases(projectId: number): Promise<void> {
+    this.logger.log(`Archiving all releases for project: ${projectId}`);
+
+    const releases = await this.releaseRepo.find({
+      select: { catalogId: true, version: true, status: true },
+      where: {
+        project: { id: projectId },
+        status: Not(ReleaseStatusEnum.ARCHIVED),
+      },
+    });
+
+    if (releases.length === 0) {
+      this.logger.debug(`No active releases to archive for project: ${projectId}`);
+      return;
+    }
+
+    await this.releaseRepo.update(
+      { project: { id: projectId }, status: Not(ReleaseStatusEnum.ARCHIVED) },
+      { status: ReleaseStatusEnum.ARCHIVED, latest: false },
+    );
+
+    // Notify offering service to remove all archived releases
+    for (const release of releases) {
+      this.sendProjectReleasesChangedEvent(projectId, release.catalogId, ReleaseStatusEnum.ARCHIVED);
+    }
+
+    this.logger.log(`Archived ${releases.length} releases for project: ${projectId}`);
+  }
+
+  /**
+   * Restores all archived releases for a project back to DRAFT status.
+   * Called when an archived project is restored.
+   */
+  async restoreProjectReleases(projectId: number): Promise<void> {
+    this.logger.log(`Restoring archived releases for project: ${projectId}`);
+
+    await this.releaseRepo.update(
+      { project: { id: projectId }, status: ReleaseStatusEnum.ARCHIVED },
+      { status: ReleaseStatusEnum.DRAFT },
+    );
+
+    await this.updateLatestForProject(projectId);
+    this.logger.log(`Restored releases for project: ${projectId} to DRAFT status`);
   }
 
   async setReleaseArtifact(artifact: SetReleaseArtifactDto): Promise<SetReleaseArtifactResDto> {
@@ -374,11 +516,18 @@ export class ReleaseService implements OnModuleInit {
       upsertOptions.conflictPaths = ['release', 'fileUpload'];
       upsertOptions.indexPredicate = "file_upload_id IS NOT NULL and type = 'file'"
 
-    } else {
+    } else if (artifact.type === ArtifactTypeEnum.DOCKER_IMAGE) {
       artifactEntity.dockerImageUrl = artifact.dockerImageUrl;
 
       upsertOptions.conflictPaths = ['release', 'dockerImageUrl'];
       upsertOptions.indexPredicate = "docker_image_url IS NOT NULL AND type = 'docker_image'"
+
+    } else if (artifact.type === ArtifactTypeEnum.RPM || artifact.type === ArtifactTypeEnum.DEB) {
+      // Package reference from yum/apt repository — no file upload required
+      artifactEntity.packageVersion = artifact.packageVersion;
+
+      upsertOptions.conflictPaths = ['release', 'artifactName', 'type'];
+      upsertOptions.indexPredicate = "file_upload_id IS NULL AND docker_image_url IS NULL"
     }
 
     this.logger.debug(`Saving release artifact for release: ${artifact.version}, type: ${artifact.type}`);
@@ -395,6 +544,9 @@ export class ReleaseService implements OnModuleInit {
           this.logger.warn(`SBOM scan trigger failed for docker artifact (non-critical): ${err?.message}`);
         });
       }
+    } else if (artifact.type === ArtifactTypeEnum.RPM || artifact.type === ArtifactTypeEnum.DEB) {
+      // Package artifacts are immediately available — trigger state refresh
+      this.refreshReleaseState(artifact);
     }
 
     return res;
@@ -587,11 +739,9 @@ export class ReleaseService implements OnModuleInit {
     const release = await this.getReleaseEntity(params).catch(() => { });
     if (!release) return;
 
-    // ERROR status is owned by the storage-sync routine and can only be resolved
-    // via the sync loop or by a user with "edit-released-release" permission.
-    // refreshReleaseState must never overwrite it.
-    if (release.status === ReleaseStatusEnum.ERROR) {
-      this.logger.debug(`Skipping release state refresh for ${params.version} — release is in ERROR state (storage issue).`);
+    // ERROR and ARCHIVED statuses are "terminal" — refreshReleaseState must not overwrite them.
+    if (release.status === ReleaseStatusEnum.ERROR || release.status === ReleaseStatusEnum.ARCHIVED) {
+      this.logger.debug(`Skipping release state refresh for ${params.version} — release is in ${release.status} state.`);
       return;
     }
 
@@ -632,6 +782,9 @@ export class ReleaseService implements OnModuleInit {
     const installationArtifacts = release.artifacts.filter((artifact) => artifact?.isInstallationFile);
     const fileInstallationArtifacts = installationArtifacts.filter((artifact) => artifact?.type === ArtifactTypeEnum.FILE);
     const dockerInstallationArtifacts = installationArtifacts.filter((artifact) => artifact?.type === ArtifactTypeEnum.DOCKER_IMAGE);
+    const packageInstallationArtifacts = installationArtifacts.filter(
+      (artifact) => artifact?.type === ArtifactTypeEnum.RPM || artifact?.type === ArtifactTypeEnum.DEB
+    );
 
     const fileIds = fileInstallationArtifacts.map(a => a?.fileUpload?.id).filter((id): id is number => id != null);
 
@@ -640,14 +793,14 @@ export class ReleaseService implements OnModuleInit {
     const storageMissing = fileIds.length > 0 && await this.fileUploadService.syncAndCheckMissingFiles(fileIds);
 
     // If there are file installation artifacts, ALL of them must be fully uploaded.
-    // If there are no file installation artifacts, fall back to checking docker images are present (they're always ready once added).
+    // Docker images and package (rpm/deb) artifacts are always ready once added.
     const fileUploaded = installationArtifacts.length > 0 && (
       fileInstallationArtifacts.length > 0
         ? await this.fileUploadService.areFilesUploaded(fileIds)
-        : dockerInstallationArtifacts.length > 0
+        : dockerInstallationArtifacts.length > 0 || packageInstallationArtifacts.length > 0
     );
 
-    this.logger.log(`Release: ${params.version} for project: ${params.projectId} has ${installationArtifacts.length} installation artifacts (${fileInstallationArtifacts.length} files, ${dockerInstallationArtifacts.length} docker) and they are ready: ${fileUploaded}`);
+    this.logger.log(`Release: ${params.version} for project: ${params.projectId} has ${installationArtifacts.length} installation artifacts (${fileInstallationArtifacts.length} files, ${dockerInstallationArtifacts.length} docker, ${packageInstallationArtifacts.length} packages) and they are ready: ${fileUploaded}`);
 
     this.logger.debug(`Release: ${params.version} for project: ${params.projectId}, status: ${release.status}, regulationsCompliant: ${regulationsCompliant}, dependenciesReleased: ${dependenciesReleased}, fileUploaded: ${fileUploaded}, storageMissing: ${storageMissing}`);
 

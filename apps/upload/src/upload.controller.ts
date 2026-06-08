@@ -263,5 +263,23 @@ export class UploadController {
   linkExistingArtifact(@RpcPayload() dto: LinkExistingArtifactDto) {
     return this.releasesService.linkExistingArtifact(dto);
   }
+
+  @MessagePattern(UploadTopics.ARCHIVE_PROJECT_RELEASES)
+  async archiveProjectReleases(@RpcPayload('projectId') projectId: number): Promise<{ success: boolean }> {
+    await this.releasesService.archiveProjectReleases(projectId);
+    return { success: true };
+  }
+
+  @MessagePattern(UploadTopics.RESTORE_PROJECT_RELEASES)
+  async restoreProjectReleases(@RpcPayload('projectId') projectId: number): Promise<{ success: boolean }> {
+    await this.releasesService.restoreProjectReleases(projectId);
+    return { success: true };
+  }
+
+  @MessagePattern(UploadTopics.DELETE_PROJECT_RELEASES)
+  async deleteProjectReleases(@RpcPayload('projectId') projectId: number): Promise<{ success: boolean }> {
+    await this.releasesService.deleteProjectReleases(projectId);
+    return { success: true };
+  }
 }
   
