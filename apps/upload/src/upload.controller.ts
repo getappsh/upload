@@ -1,4 +1,4 @@
-import { UploadTopics, UploadTopicsEmit, ProjectManagementTopicsEmit, SbomTopicsEmit, AlertTopicsEmit } from '@app/common/microservice-client/topics';
+import { UploadTopics, UploadTopicsEmit, ProjectManagementTopicsEmit, SbomTopicsEmit } from '@app/common/microservice-client/topics';
 import { RoleInProject, UploadVersionEntity } from '@app/common/database/entities';
 import { Controller, Logger, UseInterceptors, Inject } from '@nestjs/common';
 import { EventPattern, MessagePattern, RpcException } from '@nestjs/microservices';
@@ -249,17 +249,6 @@ export class UploadController {
   async onScanCompleted(@RpcPayload() event: ScanCompletedEventDto): Promise<void> {
     this.logger.log(`Received SCAN_COMPLETED event for scanId=${event.scanId}, success=${event.success}`);
     await this.releasesService.linkSbomReport(event.scanId, event.reportBucketPath);
-
-    // Emit system alert for SBOM scan result
-    this.projectManagementClient.emit(AlertTopicsEmit.SYSTEM_ALERT, {
-      type: event.success ? 'sbom_ready' : 'sbom_failed',
-      severity: event.success ? 'info' : 'warning',
-      message: event.success
-        ? `SBOM report ready for scan ${event.scanId}`
-        : `SBOM scan failed for scan ${event.scanId}`,
-      source: 'upload',
-      metadata: { scanId: event.scanId, reportPath: event.reportBucketPath },
-    });
   }
 
   @MessagePattern(UploadTopics.ARCHIVE_PROJECT_RELEASES)
