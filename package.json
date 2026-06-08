@@ -45,6 +45,7 @@
     "@nestjs/swagger": "^6.2.1",
     "@nestjs/typeorm": "^10.0.0",
     "@persian-tools/persian-tools": "^3.6.0",
+    "@snyk/docker-registry-v2-client": "^4.0.1",
     "@turf/turf": "^6.5.0",
     "@types/dockerode": "^3.3.16",
     "@usex/rule-engine": "^0.0.2",

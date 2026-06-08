@@ -11,3 +11,4 @@ export * from './dto/deployment-report.dto'
 export * from './stubs/upload-artifact.dto.stub'
 
 export * from './dto/update-file-properties.dto'
+export * from './dto/registry-browse.dto'

@@ -58,6 +58,10 @@ export const UploadTopics = {
     RESTORE_PROJECT_RELEASES: `getapp-upload.restore-project-releases${region}`,
     DELETE_PROJECT_RELEASES: `getapp-upload.delete-project-releases${region}`,
 
+    // Registry browsing
+    BROWSE_REGISTRY: `getapp-upload.browse-registry${region}`,
+    LINK_EXISTING_ARTIFACT: `getapp-upload.link-existing-artifact${region}`,
+
     // Config projects
     CONFIG_UPSERT_GROUP: `getapp-upload.config.upsert-group${region}`,
     CONFIG_DELETE_GROUP: `getapp-upload.config.delete-group${region}`,
