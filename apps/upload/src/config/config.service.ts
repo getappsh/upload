@@ -355,10 +355,8 @@ export class ConfigService implements OnModuleInit {
 
   async getActiveConfigSemVerForDevice(deviceId: string): Promise<{ semVer: string | null }> {
     const projectName = `config:${deviceId}`;
-    const configProject = await this.getProjectByNameAndType(projectName, ProjectType.CONFIG);
-    if (!configProject) return { semVer: null };
     const revision = await this.revisionRepo.findOne({
-      where: { projectId: configProject.id, status: ConfigRevisionStatus.ACTIVE },
+      where: { project:{name: projectName}, status: ConfigRevisionStatus.ACTIVE },
       select: ['semVer'],
     });
     return { semVer: revision?.semVer ?? null };
