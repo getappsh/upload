@@ -373,11 +373,20 @@ export class ReleaseService implements OnModuleInit {
         latest: () => `
                 CASE 
                     WHEN catalog_id = (
-                        SELECT catalog_id 
-                        FROM "release"
-                        WHERE project_id = :projectId AND status = :status
-                        ORDER BY sort_order DESC
-                        LIMIT 1
+                        SELECT COALESCE(
+                            (SELECT otp.catalog_id FROM offering_tree_policy otp
+                             JOIN "release" r ON r.catalog_id = otp.catalog_id
+                             WHERE otp.project_id = :projectId 
+                               AND otp.platform_id IS NULL 
+                               AND otp.device_type_id IS NULL
+                               AND r.status = :status
+                             LIMIT 1),
+                            (SELECT catalog_id 
+                             FROM "release"
+                             WHERE project_id = :projectId AND status = :status
+                             ORDER BY sort_order DESC
+                             LIMIT 1)
+                        )
                     ) 
                     THEN TRUE 
                     ELSE FALSE 
