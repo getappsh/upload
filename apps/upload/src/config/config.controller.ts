@@ -1,5 +1,5 @@
 import { Controller, Logger, UseInterceptors } from '@nestjs/common';
-import { MessagePattern } from '@nestjs/microservices';
+import { EventPattern, MessagePattern } from '@nestjs/microservices';
 import { UploadTopics } from '@app/common/microservice-client/topics';
 import { RpcPayload, UserContextInterceptor } from '@app/common/microservice-client';
 import { ConfigService } from './config.service';
@@ -105,7 +105,7 @@ export class ConfigController {
     return this.configService.getDeviceConfigByVersion(dto);
   }
 
-  @MessagePattern(UploadTopics.CONFIG_PROVISION_PROJECT_CONTENT)
+  @EventPattern(UploadTopics.CONFIG_PROVISION_PROJECT_CONTENT)
   provisionProjectContent(@RpcPayload() payload: { projectId: number; deviceId: string; deviceTypeIds?: number[] }) {
     return this.configService.provisionProjectContent(payload);
   }
