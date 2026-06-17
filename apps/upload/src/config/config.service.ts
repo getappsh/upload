@@ -632,8 +632,16 @@ export class ConfigService implements OnModuleInit {
     // Replace placeholder release with the real initial semver
     await this.updateConfigProjectRelease(projectId, initialSemVer);
 
-    // Upload to S3 immediately
-    await this.assembleAndCacheDeviceConfig(deviceId, initialSemVer);
+    // Upload to S3 immediately – best-effort during provisioning since it may
+    // call back to project-management which might not be reachable yet.
+    try {
+      await this.assembleAndCacheDeviceConfig(deviceId, initialSemVer);
+    } catch (err) {
+      this.logger.warn(
+        `Initial S3 cache upload skipped for device ${deviceId}: ${(err as Error)?.message}. ` +
+        `Cache will be populated on next config apply.`,
+      );
+    }
   }
 
   private async cascadeConfigMapRevisionToDevices(configMapProjectId: number): Promise<void> {
