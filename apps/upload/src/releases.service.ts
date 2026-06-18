@@ -17,6 +17,7 @@ import { ConfigService } from "@nestjs/config";
 import { ClsService } from 'nestjs-cls';
 import { ApiRole, PermissionsService } from "@app/common";
 import { RuleType } from '@app/common/rules/enums/rule.enums';
+import * as semver from 'semver';
 
 
 @Injectable()
@@ -172,6 +173,7 @@ export class ReleaseService implements OnModuleInit {
     }
 
     await this.refreshReleaseState(dto);
+    await this.updateLatestForProject(dto.projectId);
 
     return this.getRelease(dto);
   }
@@ -366,25 +368,25 @@ export class ReleaseService implements OnModuleInit {
   }
 
   async updateLatestForProject(projectId: number) {
+    const releasedReleases = await this.releaseRepo.find({
+      select: ['catalogId', 'version'],
+      where: { project: { id: projectId }, status: ReleaseStatusEnum.RELEASED },
+    });
+
+    const validReleases = releasedReleases.filter(r => semver.valid(r.version));
+    validReleases.sort((a, b) => semver.compare(b.version, a.version));
+
+    const latestCatalogId = validReleases.length > 0 ? validReleases[0].catalogId : null;
+
     await this.releaseRepo
       .createQueryBuilder()
       .update(ReleaseEntity)
       .set({
-        latest: () => `
-                CASE 
-                    WHEN catalog_id = (
-                        SELECT catalog_id 
-                        FROM "release"
-                        WHERE project_id = :projectId AND status = :status
-                        ORDER BY sort_order DESC
-                        LIMIT 1
-                    ) 
-                    THEN TRUE 
-                    ELSE FALSE 
-                END
-            `,
+        latest: () => latestCatalogId
+          ? `CASE WHEN catalog_id = :latestCatalogId THEN TRUE ELSE FALSE END`
+          : 'FALSE',
       })
-      .where("project_id = :projectId", { projectId, status: ReleaseStatusEnum.RELEASED })
+      .where("project_id = :projectId", { projectId, latestCatalogId })
       .execute();
   }
 
