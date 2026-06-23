@@ -86,6 +86,11 @@ export class ConfigController {
     return this.configService.getConfigMapAssociations(payload.configMapProjectIdentifier);
   }
 
+  @MessagePattern(UploadTopics.CONFIG_GET_MAP_AFFECTED_DEVICES)
+  getConfigMapAffectedDevices(@RpcPayload() payload: { configMapProjectIdentifier: number | string }) {
+    return this.configService.getConfigMapAffectedDevices(payload.configMapProjectIdentifier);
+  }
+
   @MessagePattern(UploadTopics.CONFIG_GET_CONFIG_MAPS_FOR_PROJECT)
   getConfigMapsForProject(@RpcPayload() payload: { projectIdentifier: number | string }) {
     return this.configService.getConfigMapsForProject(payload.projectIdentifier);
@@ -111,7 +116,8 @@ export class ConfigController {
   }
 
   @MessagePattern(UploadTopics.CONFIG_GET_ACTIVE_SEMVER_FOR_DEVICE)
-  getActiveConfigSemVerForDevice(@RpcPayload() deviceId: string) {
+  getActiveConfigSemVerForDevice(@RpcPayload() payload: string | { deviceId: string }) {
+    const deviceId = typeof payload === 'string' ? payload : payload.deviceId;
     return this.configService.getActiveConfigSemVerForDevice(deviceId);
   }
 }

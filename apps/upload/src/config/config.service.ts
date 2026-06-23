@@ -24,6 +24,7 @@ import {
   AddConfigMapAssociationDto,
   ApplyConfigRevisionDto,
   ConfigGroupDto,
+  ConfigMapAffectedDeviceDto,
   ConfigMapAssociationDto,
   ConfigMapForProjectDto,
   ConfigRevisionDto,
@@ -46,6 +47,17 @@ const CONFIG_VAULT_FIELD = 'config_value' as const;
 /** One Vault secret per sensitive key path; dots in the path become '__'. */
 const CONFIG_VAULT_KEY_SECRET_NAME = (groupId: number, keyPath: string) =>
   `config-group-${groupId}-key-${keyPath.replace(/\./g, '__')}`;
+
+// ---------------------------------------------------------------------------
+// In-memory project cache to avoid repeated RPC calls to project-management
+// ---------------------------------------------------------------------------
+const PROJECT_CACHE_TTL_MS = 30_000; // 30 seconds
+
+interface CachedProject {
+  data: any;
+  expiresAt: number;
+}
+
 
 // ---------------------------------------------------------------------------
 // Dot-notation path helpers for nested YAML objects
@@ -78,6 +90,7 @@ function deleteByPath(obj: Record<string, any>, path: string): void {
 @Injectable()
 export class ConfigService implements OnModuleInit {
   private readonly logger = new Logger(ConfigService.name);
+  private readonly projectCache = new Map<string, CachedProject>();
 
   constructor(
     @InjectRepository(ConfigRevisionEntity) private readonly revisionRepo: Repository<ConfigRevisionEntity>,
@@ -110,14 +123,31 @@ export class ConfigService implements OnModuleInit {
   // ---------------------------------------------------------------------------
 
   private async getProjectByIdentifier(identifier: number | string): Promise<any | null> {
-    return lastValueFrom(
+    const cacheKey = `id:${identifier}`;
+    const cached = this.projectCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.data;
+
+    const project = await lastValueFrom(
       this.projectManagementClient.send(ProjectManagementTopics.GET_PROJECT_BY_IDENTIFIER, {
         projectIdentifier: identifier,
       }),
     ).catch(() => null);
+
+    if (project) {
+      const expiresAt = Date.now() + PROJECT_CACHE_TTL_MS;
+      this.projectCache.set(cacheKey, { data: project, expiresAt });
+      this.projectCache.set(`id:${project.id}`, { data: project, expiresAt });
+      if (project.name) this.projectCache.set(`name:${project.name}:${project.projectType}`, { data: project, expiresAt });
+    }
+
+    return project;
   }
 
   private async getProjectByNameAndType(name: string, projectType: ProjectType): Promise<any | null> {
+    const cacheKey = `name:${name}:${projectType}`;
+    const cached = this.projectCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.data;
+
     const projects = await lastValueFrom(
       this.projectManagementClient.send(ProjectManagementTopics.GET_PROJECTS, {
         page: 1,
@@ -129,6 +159,11 @@ export class ConfigService implements OnModuleInit {
 
     const project = projects?.data?.[0];
     if (!project || project.projectType !== projectType) return null;
+
+    const expiresAt = Date.now() + PROJECT_CACHE_TTL_MS;
+    this.projectCache.set(cacheKey, { data: project, expiresAt });
+    this.projectCache.set(`id:${project.id}`, { data: project, expiresAt });
+
     return project;
   }
 
@@ -170,7 +205,7 @@ export class ConfigService implements OnModuleInit {
     const maxResult = await this.revisionRepo
       .createQueryBuilder('r')
       .select('MAX(r.revisionNumber)', 'max')
-      .where('r.projectId = :projectId', { projectId })
+      .where('"project_id" = :projectId', { projectId })
       .getRawOne<{ max: number | null }>();
 
     const nextNumber = (maxResult?.max ?? 0) + 1;
@@ -306,16 +341,17 @@ export class ConfigService implements OnModuleInit {
       ProjectType.CONFIG_MAP,
     ]);
 
-    const draft = await this.revisionRepo.findOne({
-      where: { projectId: project.id, status: ConfigRevisionStatus.DRAFT },
-      relations: { groups: true },
-    });
+    const [draft, previousActive] = await Promise.all([
+      this.revisionRepo.findOne({
+        where: { projectId: project.id, status: ConfigRevisionStatus.DRAFT },
+        relations: { groups: true },
+      }),
+      this.revisionRepo.findOne({
+        where: { projectId: project.id, status: ConfigRevisionStatus.ACTIVE },
+        relations: { groups: true },
+      }),
+    ]);
     if (!draft) throw new NotFoundException(`No draft revision found for project '${dto.projectIdentifier}'`);
-
-    const previousActive = await this.revisionRepo.findOne({
-      where: { projectId: project.id, status: ConfigRevisionStatus.ACTIVE },
-      relations: { groups: true },
-    });
 
     await this.revisionRepo.update(
       { projectId: project.id, status: ConfigRevisionStatus.ACTIVE },
@@ -392,37 +428,39 @@ export class ConfigService implements OnModuleInit {
       ProjectType.CONFIG_MAP,
     ]);
 
-    const existing = await this.revisionRepo.findOne({
-      where: { projectId: project.id, status: ConfigRevisionStatus.DRAFT },
-    });
+    const [existing, maxResult] = await Promise.all([
+      this.revisionRepo.findOne({
+        where: { projectId: project.id, status: ConfigRevisionStatus.DRAFT },
+      }),
+      this.revisionRepo
+        .createQueryBuilder('r')
+        .select('MAX(r.revisionNumber)', 'max')
+        .where('r.projectId = :projectId', { projectId: project.id })
+        .getRawOne<{ max: number | null }>(),
+    ]);
     if (existing) throw new BadRequestException(`A draft revision already exists for project '${dto.projectIdentifier}'`);
 
-    const maxResult = await this.revisionRepo
-      .createQueryBuilder('r')
-      .select('MAX(r.revisionNumber)', 'max')
-      .where('r.projectId = :projectId', { projectId: project.id })
-      .getRawOne<{ max: number | null }>();
     const nextNumber = (maxResult?.max ?? 0) + 1;
 
     const draft = await this.revisionRepo.save(
       this.revisionRepo.create({ projectId: project.id, revisionNumber: nextNumber, status: ConfigRevisionStatus.DRAFT }),
     );
 
-    const source =
-      (await this.revisionRepo.findOne({
+    const [activeSource, archivedSource] = await Promise.all([
+      this.revisionRepo.findOne({
         where: { projectId: project.id, status: ConfigRevisionStatus.ACTIVE },
         relations: { groups: true },
-      })) ??
-      (await this.revisionRepo.findOne({
+      }),
+      this.revisionRepo.findOne({
         where: { projectId: project.id, status: ConfigRevisionStatus.ARCHIVED },
         order: { revisionNumber: 'DESC' },
         relations: { groups: true },
-      }));
+      }),
+    ]);
+    const source = activeSource ?? archivedSource;
 
     if (source?.groups?.length) {
-      for (const g of source.groups) {
-        await this.cloneGroupToRevision(g, draft.id, g.position);
-      }
+      await Promise.all(source.groups.map((g) => this.cloneGroupToRevision(g, draft.id, g.position)));
       draft.groups = await this.groupRepo.find({ where: { revisionId: draft.id } });
     }
 
@@ -474,6 +512,8 @@ export class ConfigService implements OnModuleInit {
     const project = await this.requireProject(dto.configMapProjectIdentifier, ProjectType.CONFIG_MAP);
 
     const created: ConfigMapAssociationDto[] = [];
+    const newlyAddedDeviceTypeIds: number[] = [];
+    const newlyAddedDeviceIds: string[] = [];
 
     if (hasDeviceType) {
       await lastValueFrom(
@@ -495,6 +535,7 @@ export class ConfigService implements OnModuleInit {
           }),
         );
         created.push({ id: assoc.id, configMapProjectId: assoc.configMapProjectId, deviceTypeId: assoc.deviceTypeId, deviceId: null, configProjectId: null });
+        newlyAddedDeviceTypeIds.push(dto.deviceTypeId!);
       }
     }
 
@@ -515,7 +556,20 @@ export class ConfigService implements OnModuleInit {
             }),
           );
           created.push({ id: assoc.id, configMapProjectId: assoc.configMapProjectId, deviceTypeId: null, deviceId: assoc.deviceId ?? null, configProjectId: null });
+          newlyAddedDeviceIds.push(deviceId);
         }
+      }
+    }
+
+    // Cascade config map groups only to NEWLY associated devices (skip existing associations)
+    if (newlyAddedDeviceTypeIds.length > 0 || newlyAddedDeviceIds.length > 0) {
+      const activeRevision = await this.revisionRepo.findOne({
+        where: { projectId: project.id, status: ConfigRevisionStatus.ACTIVE },
+      });
+      if (activeRevision) {
+        this.cascadeConfigMapToSpecificDevices(project.id, newlyAddedDeviceTypeIds, newlyAddedDeviceIds).catch((err) =>
+          this.logger.error(`Config map cascade after association failed for project ${project.id}: ${(err as Error)?.message}`),
+        );
       }
     }
 
@@ -533,6 +587,36 @@ export class ConfigService implements OnModuleInit {
     const project = await this.requireProject(configMapProjectIdentifier, ProjectType.CONFIG_MAP);
     const assocs = await this.assocRepo.find({ where: { configMapProjectId: project.id, configProjectId: IsNull() } });
     return assocs.map((a) => ({ id: a.id, configMapProjectId: a.configMapProjectId, deviceTypeId: a.deviceTypeId, deviceId: a.deviceId ?? null, configProjectId: null }));
+  }
+
+  async getConfigMapAffectedDevices(configMapProjectIdentifier: number | string): Promise<ConfigMapAffectedDeviceDto[]> {
+    const project = await this.requireProject(configMapProjectIdentifier, ProjectType.CONFIG_MAP);
+    const assocs = await this.assocRepo.find({ where: { configMapProjectId: project.id, configProjectId: IsNull() } });
+    if (assocs.length === 0) return [];
+
+    const result: ConfigMapAffectedDeviceDto[] = [];
+
+    // Direct device-id associations
+    for (const a of assocs) {
+      if (a.deviceId) {
+        result.push({ deviceId: a.deviceId, associationType: 'deviceId', associationValue: a.deviceId });
+      }
+    }
+
+    // Device-type associations → resolve to device IDs
+    const typeIds = [...new Set(assocs.filter((a) => a.deviceTypeId != null).map((a) => a.deviceTypeId!))];
+    if (typeIds.length > 0) {
+      for (const typeId of typeIds) {
+        const deviceIds = await lastValueFrom(
+          this.deviceClient.send<string[]>(DeviceTopics.GET_DEVICE_IDS_BY_TYPE_IDS, { typeIds: [typeId] }),
+        ).catch(() => [] as string[]);
+        for (const id of deviceIds) {
+          result.push({ deviceId: id, associationType: 'deviceType', associationValue: String(typeId) });
+        }
+      }
+    }
+
+    return result;
   }
 
   async getConfigMapsForProject(projectIdentifier: number | string): Promise<ConfigMapForProjectDto[]> {
@@ -675,6 +759,37 @@ export class ConfigService implements OnModuleInit {
         await this.refreshConfigProjectRevision(configProject.id, deviceId);
       } catch (err) {
         this.logger.error(`Failed to cascade config map update to ${projectName}: ${(err as Error)?.message}`);
+      }
+    }
+  }
+
+  private async cascadeConfigMapToSpecificDevices(
+    configMapProjectId: number,
+    newDeviceTypeIds: number[],
+    newDeviceIds: string[],
+  ): Promise<void> {
+    const deviceIdSet = new Set<string>(newDeviceIds);
+
+    if (newDeviceTypeIds.length > 0) {
+      const deviceIds = await lastValueFrom(
+        this.deviceClient.send<string[]>(DeviceTopics.GET_DEVICE_IDS_BY_TYPE_IDS, { typeIds: newDeviceTypeIds }),
+      ).catch(() => [] as string[]);
+      for (const id of deviceIds) deviceIdSet.add(id);
+    }
+
+    if (deviceIdSet.size === 0) return;
+
+    this.logger.log(`Cascading config map ${configMapProjectId} to ${deviceIdSet.size} newly associated device(s)`);
+
+    for (const deviceId of deviceIdSet) {
+      const projectName = `config:${deviceId}`;
+      const configProject = await this.getProjectByNameAndType(projectName, ProjectType.CONFIG);
+      if (!configProject) continue;
+
+      try {
+        await this.refreshConfigProjectRevision(configProject.id, deviceId);
+      } catch (err) {
+        this.logger.error(`Failed to cascade config map to newly associated ${projectName}: ${(err as Error)?.message}`);
       }
     }
   }
