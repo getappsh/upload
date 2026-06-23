@@ -24,6 +24,7 @@ import {
   AddConfigMapAssociationDto,
   ApplyConfigRevisionDto,
   ConfigGroupDto,
+  ConfigMapAffectedDeviceDto,
   ConfigMapAssociationDto,
   ConfigMapForProjectDto,
   ConfigRevisionDto,
@@ -588,12 +589,12 @@ export class ConfigService implements OnModuleInit {
     return assocs.map((a) => ({ id: a.id, configMapProjectId: a.configMapProjectId, deviceTypeId: a.deviceTypeId, deviceId: a.deviceId ?? null, configProjectId: null }));
   }
 
-  async getConfigMapAffectedDevices(configMapProjectIdentifier: number | string): Promise<{ deviceId: string; associationType: 'deviceType' | 'deviceId'; associationValue: string }[]> {
+  async getConfigMapAffectedDevices(configMapProjectIdentifier: number | string): Promise<ConfigMapAffectedDeviceDto[]> {
     const project = await this.requireProject(configMapProjectIdentifier, ProjectType.CONFIG_MAP);
     const assocs = await this.assocRepo.find({ where: { configMapProjectId: project.id, configProjectId: IsNull() } });
     if (assocs.length === 0) return [];
 
-    const result: { deviceId: string; associationType: 'deviceType' | 'deviceId'; associationValue: string }[] = [];
+    const result: ConfigMapAffectedDeviceDto[] = [];
 
     // Direct device-id associations
     for (const a of assocs) {
