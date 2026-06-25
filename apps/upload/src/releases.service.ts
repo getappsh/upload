@@ -1072,7 +1072,7 @@ export class ReleaseService implements OnModuleInit {
     this.logger.log(`Starting background import of ${artifacts.length} artifacts for release ${release.catalogId}`);
 
     // Emit alert: upload started
-    this.projectClient.emit(AlertTopicsEmit.SYSTEM_ALERT, {
+    this.deployClient.emit(AlertTopicsEmit.SYSTEM_ALERT, {
       type: 'upload_started',
       severity: 'info',
       message: `File upload started for release ${release.catalogId} (${artifacts.length} artifact(s))`,
@@ -1131,7 +1131,7 @@ export class ReleaseService implements OnModuleInit {
 
     if (allSucceeded && artifacts.length > 0) {
       // Emit alert: upload completed
-      this.projectClient.emit(AlertTopicsEmit.SYSTEM_ALERT, {
+      this.deployClient.emit(AlertTopicsEmit.SYSTEM_ALERT, {
         type: 'upload_completed',
         severity: 'info',
         message: `All ${results.length} artifact(s) uploaded successfully for release ${release.catalogId}`,
@@ -1153,7 +1153,7 @@ export class ReleaseService implements OnModuleInit {
       this.logger.log(`All artifacts imported successfully. Release ${release.catalogId} set to RELEASED.`);
     } else if (failedArtifacts.length > 0) {
       // Emit alert: upload failed
-      this.projectClient.emit(AlertTopicsEmit.SYSTEM_ALERT, {
+      this.deployClient.emit(AlertTopicsEmit.SYSTEM_ALERT, {
         type: 'upload_failed',
         severity: 'warning',
         message: `${failedArtifacts.length} of ${results.length} artifact(s) failed to upload for release ${release.catalogId}`,
