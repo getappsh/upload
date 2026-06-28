@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - 'prod-1.2'
 ###
 jobs:
   calculate_new_tag:
