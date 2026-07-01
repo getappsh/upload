@@ -9,7 +9,7 @@ import { UpsertOptions } from "typeorm/repository/UpsertOptions";
 import { RegulationStatusService } from "./regulation-status.service";
 import { MinimalReleaseDto, ProjectReleasesChangedEvent, RegulationChangedEvent, RegulationChangedEventType, RegulationParams } from "@app/common/dto/project-management";
 import { MicroserviceClient, MicroserviceName } from "@app/common/microservice-client";
-import { OfferingTopicsEmit, ProjectManagementTopicsEmit, OfferingTopics, DeliveryTopics, DeployTopics } from "@app/common/microservice-client/topics";
+import { OfferingTopicsEmit, ProjectManagementTopicsEmit, OfferingTopics, DeliveryTopics, DeployTopics, AlertTopicsEmit } from "@app/common/microservice-client/topics";
 import { lastValueFrom } from "rxjs";
 import { ExportReleaseDto, ExportArtifactDto, ExportDockerImageDto, ExportDependencyDto, ImportReleaseDto, ImportReleaseResponseDto, ArtifactWarningDto } from "@app/common/dto/delivery";
 import { MinioClientService } from "@app/common/AWS/minio-client.service";
@@ -1070,6 +1070,15 @@ export class ReleaseService implements OnModuleInit {
     bucketName: string
   ): Promise<void> {
     this.logger.log(`Starting background import of ${artifacts.length} artifacts for release ${release.catalogId}`);
+
+    // Emit alert: upload started
+    this.deployClient.emit(AlertTopicsEmit.SYSTEM_ALERT, {
+      type: 'upload_started',
+      severity: 'info',
+      message: `File upload started for release ${release.catalogId} (${artifacts.length} artifact(s))`,
+      source: 'upload',
+      metadata: { catalogId: release.catalogId, artifactCount: artifacts.length },
+    });
     
     // Filter out artifacts without downloadUrl
     const validArtifacts = artifacts.filter(artifact => {
@@ -1118,7 +1127,17 @@ export class ReleaseService implements OnModuleInit {
 
     // After all uploads, check if all succeeded
     const allSucceeded = results.every(r => r.success);
+    const failedArtifacts = results.filter(r => !r.success);
+
     if (allSucceeded && artifacts.length > 0) {
+      // Emit alert: upload completed
+      this.deployClient.emit(AlertTopicsEmit.SYSTEM_ALERT, {
+        type: 'upload_completed',
+        severity: 'info',
+        message: `All ${results.length} artifact(s) uploaded successfully for release ${release.catalogId}`,
+        source: 'upload',
+        metadata: { catalogId: release.catalogId, artifactCount: results.length },
+      });
       // Set release status to RELEASED
       await this.releaseRepo.createQueryBuilder()
         .update()
@@ -1132,6 +1151,18 @@ export class ReleaseService implements OnModuleInit {
       await this.updateLatestForProject(projectId);
       await this.refreshReleaseState({ projectId: projectId, version: release.version, projectIdentifier: projectId });
       this.logger.log(`All artifacts imported successfully. Release ${release.catalogId} set to RELEASED.`);
+    } else if (failedArtifacts.length > 0) {
+      // Emit alert: upload failed
+      this.deployClient.emit(AlertTopicsEmit.SYSTEM_ALERT, {
+        type: 'upload_failed',
+        severity: 'warning',
+        message: `${failedArtifacts.length} of ${results.length} artifact(s) failed to upload for release ${release.catalogId}`,
+        source: 'upload',
+        metadata: {
+          catalogId: release.catalogId,
+          failed: failedArtifacts.map(r => r.name),
+        },
+      });
     }
     this.logger.log(`Completed background import for release ${release.catalogId}`);
   }
