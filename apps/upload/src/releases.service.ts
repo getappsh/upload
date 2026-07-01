@@ -1,5 +1,5 @@
 import { ReleaseEntity, ReleaseArtifactEntity, ProjectEntity, ReleaseStatusEnum, ArtifactTypeEnum, FileUploadEntity, RegulationEntity, FileUPloadStatusEnum, RuleEntity, RuleReleaseEntity, DeliveryStatusEntity, DeployStatusEntity, DeliveryStatusEnum, DeployStatusEnum } from "@app/common/database/entities";
-import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto, ReleaseEventType, ReleaseEventEnum, ReleaseChangedEventDto, GetReleaseArtifactResDto, ReleaseArtifactNameParams, UpdateFilePropertiesDto, DeploymentReportDto, DeviceDeploymentDetailDto } from "@app/common/dto/upload";
+import { SetReleaseArtifactDto, SetReleaseArtifactResDto, CreateFileUploadUrlDto, SetReleaseDto, ReleaseParams, ReleaseDto, ReleaseArtifactParams, DetailedReleaseDto, ReleaseEventType, ReleaseEventEnum, ReleaseChangedEventDto, GetReleaseArtifactResDto, ReleaseArtifactNameParams, UpdateFilePropertiesDto, DeploymentReportDto, DeviceDeploymentDetailDto, LinkExistingArtifactDto } from "@app/common/dto/upload";
 import { AppError, ErrorCode } from "@app/common/dto/error";
 import { Inject, Injectable, Logger, NotFoundException, ConflictException, BadRequestException, ForbiddenException, OnModuleInit } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -570,10 +570,17 @@ export class ReleaseService implements OnModuleInit {
     }
 
     if (artifact.type == ArtifactTypeEnum.FILE) {
-      await this.fileUploadService.removeFile(artifact.fileUpload.id);
-      await this.artifactRepo.delete({ id: params.artifactId })
-      this.fileUploadService.deleteItemRow(artifact.fileUpload.id)
-        .catch(err => this.logger.error(`Error deleting file upload row from the db: ${artifact.fileUpload.id}, error: ${err}`));
+      const isReferenced = await this.fileUploadService.isFileReferencedByOtherArtifacts(artifact.fileUpload.id, params.artifactId);
+      if (isReferenced) {
+        // File is referenced by other artifacts, only delete the artifact row
+        this.logger.log(`File ${artifact.fileUpload.id} is referenced by other artifacts, skipping physical deletion`);
+        await this.artifactRepo.delete({ id: params.artifactId });
+      } else {
+        await this.fileUploadService.removeFile(artifact.fileUpload.id);
+        await this.artifactRepo.delete({ id: params.artifactId });
+        this.fileUploadService.deleteItemRow(artifact.fileUpload.id)
+          .catch(err => this.logger.error(`Error deleting file upload row from the db: ${artifact.fileUpload.id}, error: ${err}`));
+      }
     } else {
       // For docker images, handle file upload if exists, then delete the artifact
       if (artifact.fileUpload) {
@@ -1405,6 +1412,73 @@ export class ReleaseService implements OnModuleInit {
       this.logger.error(`Error generating deployment report: ${error.message}`);
       throw error;
     }
+  }
+
+  /**
+   * Links an existing artifact (already in MinIO or a docker registry) to a release
+   * without re-uploading. This allows multiple releases to reference the same artifact.
+   */
+  async linkExistingArtifact(dto: LinkExistingArtifactDto): Promise<SetReleaseArtifactResDto> {
+    this.logger.log(`Linking existing artifact to release: ${dto.version}, name: ${dto.artifactName}, type: ${dto.type}`);
+    
+    const release = await this.releaseRepo.findOneBy({ version: dto.version, project: { id: dto.projectId } });
+    if (!release) {
+      throw new NotFoundException(`Release not found for version: ${dto.version}`);
+    }
+
+    this.checkReadonlyReleasePermission(release);
+
+    const artifactEntity = new ReleaseArtifactEntity();
+    artifactEntity.type = dto.type;
+    artifactEntity.artifactName = dto.artifactName;
+    artifactEntity.metadata = dto.metadata || {};
+    artifactEntity.release = release;
+    artifactEntity.isInstallationFile = dto.isInstallationFile ?? false;
+    artifactEntity.isExecutable = dto.isExecutable ?? false;
+    artifactEntity.arguments = dto.arguments;
+
+    const res = new SetReleaseArtifactResDto();
+    let upsertOptions: UpsertOptions<ReleaseArtifactEntity>;
+
+    if (dto.type === ArtifactTypeEnum.FILE) {
+      if (!dto.objectKey) {
+        throw new BadRequestException('objectKey is required for file type artifacts');
+      }
+
+      // Create a FileUploadEntity referencing the existing object in MinIO
+      const fileUpload = new FileUploadEntity();
+      fileUpload.userId = 'linked';
+      fileUpload.fileName = dto.artifactName;
+      fileUpload.objectKey = dto.objectKey;
+      fileUpload.bucketName = this.configService.get('BUCKET_NAME');
+      fileUpload.status = FileUPloadStatusEnum.UPLOADED;
+
+      const savedFile = await this.fileUploadService.upsertFileUpload(fileUpload);
+      artifactEntity.fileUpload = { id: savedFile.id } as unknown as FileUploadEntity;
+
+      upsertOptions = {
+        conflictPaths: ['release', 'fileUpload'],
+        indexPredicate: "file_upload_id IS NOT NULL and type = 'file'"
+      };
+    } else {
+      if (!dto.dockerImageUrl) {
+        throw new BadRequestException('dockerImageUrl is required for docker_image type artifacts');
+      }
+      artifactEntity.dockerImageUrl = dto.dockerImageUrl;
+
+      upsertOptions = {
+        conflictPaths: ['release', 'dockerImageUrl'],
+        indexPredicate: "docker_image_url IS NOT NULL AND type = 'docker_image'"
+      };
+    }
+
+    const saved = await this.artifactRepo.upsert(artifactEntity, upsertOptions);
+    res.artifactId = saved.identifiers[0].id;
+
+    await this.updateTotalSize(dto.projectId, dto.version);
+    this.refreshReleaseState(dto as any);
+
+    return res;
   }
 
   /**

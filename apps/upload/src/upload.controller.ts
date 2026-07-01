@@ -3,7 +3,7 @@ import { RoleInProject, UploadVersionEntity } from '@app/common/database/entitie
 import { Controller, Logger, UseInterceptors, Inject } from '@nestjs/common';
 import { EventPattern, MessagePattern, RpcException } from '@nestjs/microservices';
 import { UploadService } from './upload.service';
-import { CreateFileUploadUrlDto, ReleaseArtifactNameParams, ReleaseArtifactParams, ReleaseParams, SetReleaseArtifactDto, SetReleaseDto, UpdateFileUploadDto, UpdateUploadStatusDto, UpdateFilePropertiesDto } from '@app/common/dto/upload';
+import { CreateFileUploadUrlDto, ReleaseArtifactNameParams, ReleaseArtifactParams, ReleaseParams, SetReleaseArtifactDto, SetReleaseDto, UpdateFileUploadDto, UpdateUploadStatusDto, UpdateFilePropertiesDto, BrowseRegistryDto, LinkExistingArtifactDto } from '@app/common/dto/upload';
 import { RpcPayload, UserContextInterceptor, MicroserviceClient, MicroserviceName } from '@app/common/microservice-client';
 import * as fs from 'fs';
 import { FileUploadService } from './file-upload.service';
@@ -15,6 +15,7 @@ import { RegulationChangedEvent } from '@app/common/dto/project-management';
 import { AuthUser } from './utils/auth-user.decorator';
 import { PolicyService } from './policy.service';
 import { ScanCompletedEventDto } from '@app/common/dto/sbom';
+import { RegistryBrowseService } from './registry-browse.service';
 
 
 @Controller()
@@ -28,6 +29,7 @@ export class UploadController {
     private readonly releasesService: ReleaseService,
     private readonly regulationService: RegulationStatusService,
     private readonly policyService: PolicyService,
+    private readonly registryBrowseService: RegistryBrowseService,
     @Inject(MicroserviceName.PROJECT_MANAGEMENT_SERVICE) private readonly projectManagementClient: MicroserviceClient,
 
   ) {}
@@ -249,6 +251,17 @@ export class UploadController {
   async onScanCompleted(@RpcPayload() event: ScanCompletedEventDto): Promise<void> {
     this.logger.log(`Received SCAN_COMPLETED event for scanId=${event.scanId}, success=${event.success}`);
     await this.releasesService.linkSbomReport(event.scanId, event.reportBucketPath);
+  }
+
+  @MessagePattern(UploadTopics.BROWSE_REGISTRY)
+  browseRegistry(@RpcPayload() dto: BrowseRegistryDto) {
+    return this.registryBrowseService.browse(dto);
+  }
+
+  @ValidateProjectAnyAccess()
+  @MessagePattern(UploadTopics.LINK_EXISTING_ARTIFACT)
+  linkExistingArtifact(@RpcPayload() dto: LinkExistingArtifactDto) {
+    return this.releasesService.linkExistingArtifact(dto);
   }
 
   @MessagePattern(UploadTopics.ARCHIVE_PROJECT_RELEASES)

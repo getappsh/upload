@@ -2,6 +2,7 @@
 
 FROM node:19.5.0-alpine
 USER root
+
 WORKDIR /node-app
 COPY package.json package.json
 RUN npm i

@@ -26,6 +26,7 @@ import { PolicyService } from './policy.service';
 import { PolicyController } from './policy.controller';
 import { FileProcessingService } from '@app/common/AWS/file-processing.service';
 import { PermissionsModule } from '@app/common/permissions/permissions.module';
+import { RegistryBrowseService } from './registry-browse.service';
 import { VaultModule } from '@app/common/vault';
 import { ConfigService as AppConfigService } from './config/config.service';
 import { ConfigController } from './config/config.controller';
@@ -109,6 +110,7 @@ import { ConfigCacheService } from './config/config-cache.service';
     CosignSignatureService,
     PolicyService,
     FileProcessingService,
+    RegistryBrowseService,
     AppConfigService,
     ConfigCacheService,
     {

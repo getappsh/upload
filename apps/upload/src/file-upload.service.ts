@@ -3,7 +3,7 @@ import { CreateFileUploadUrlDto, FileUploadUrlDto, UpdateFileUploadDto } from "@
 import { BadRequestException, ForbiddenException, Inject, Injectable, Logger, NotFoundException, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
-import { In, LessThanOrEqual, Repository } from "typeorm";
+import { In, LessThanOrEqual, Not, Repository } from "typeorm";
 import { MinioClientService } from "@app/common/AWS/minio-client.service";
 import { TimeoutRepeatTask } from "@app/common/safe-cron/timeout-repeated-task.decorator";
 import * as stream from 'stream';
@@ -262,6 +262,25 @@ export class FileUploadService implements OnModuleInit {
   async deleteItemRow(id: number) {
     this.logger.debug(`Deleting item row with id: ${id}`);
     await this.uploadRepo.delete({ id });
+  }
+
+  async upsertFileUpload(fileUpload: FileUploadEntity): Promise<FileUploadEntity> {
+    const res = await this.uploadRepo.upsert(fileUpload, ['objectKey']);
+    const id = res.identifiers[0].id;
+    return this.uploadRepo.findOneBy({ id });
+  }
+
+  /**
+   * Checks if any other release artifact references the same file upload
+   */
+  async isFileReferencedByOtherArtifacts(fileUploadId: number, excludeArtifactId: number): Promise<boolean> {
+    const count = await this.artifactRepo.count({
+      where: {
+        fileUpload: { id: fileUploadId },
+        id: Not(excludeArtifactId),
+      }
+    });
+    return count > 0;
   }
 
   async updateUploadFile(file: UpdateFileUploadDto): Promise<number> {
